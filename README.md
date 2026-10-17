@@ -76,19 +76,24 @@ he-dieu-hanh-2026/
 ├── README.md               # Tài liệu tổng quan & hướng dẫn dự án
 │
 ├── src/                    # Mã nguồn chính của ứng dụng
-│   ├── core/               # Tầng Logic IPC (Pipe, Shared Memory, Message Queue, Error Sim)
+│   ├── core/               # Tầng Logic IPC (Shared Memory, Pipe, Message Queue)
+│   │   ├── ipc_interface.py # Abstract class IIPCMechanism & IPCResult (HDH-22)
+│   │   └── shared_memory.py # Bounded Buffer Circular Memory, Mutex & Semaphore (HDH-24)
 │   ├── gui/                # Tầng Giao diện PyQt6 (Main Window, Widgets, Canvas/QGraphicsView)
 │   ├── benchmark/          # Module đo lường Throughput, Latency, CPU, RAM
 │   ├── utils/              # Module I/O (CSV Validator, CSV Logger, Exporter)
 │   └── main.py             # Điểm khởi chạy ứng dụng (Entrypoint)
 │
 ├── docs/                   # Tài liệu thiết kế, báo cáo, pseudocode & phân tích Oracle
+│   └── shared_memory_spec.md # Đặc tả kỹ thuật module Shared Memory (HDH-10)
 │
 ├── data/
 │   ├── input/              # File dữ liệu đầu vào (.csv) mẫu và kịch bản mô phỏng
 │   └── output/             # File log trace chi tiết (.csv) được sinh ra sau khi chạy
 │
-└── tests/                  # Kiểm thử tự động với pytest (Unit, Integration, Oracle Verification)
+└── tests/                  # Kiểm thử tự động (Unit, Integration, Oracle Verification)
+    ├── console_shm_test.py # Kịch bản mô phỏng đa luồng terminal & Trace log
+    └── test_shared_memory.py # Bộ kiểm thử đơn vị tự động (unittest/pytest)
 ```
 
 ---
@@ -176,11 +181,11 @@ Mỗi lần chạy sẽ xuất ra file log chi tiết:
 | Mã Test Case | Loại kịch bản | Mô tả điều kiện đầu vào | Kết quả kỳ vọng (Expected) | Kết quả thực tế (Actual) | Đánh giá |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TC-01** | Test thường (Pipe) | Gửi 100 thông điệp tuần tự qua Pipe | Nhận đủ 100 tin, đúng thứ tự FIFO, không lỗi | Đang cập nhật | Chờ test |
-| **TC-02** | Test thường (Shared Memory) | Đọc/ghi vùng nhớ có Mutex | Không mất dữ liệu, không race condition | Đang cập nhật | Chờ test |
+| **TC-02** | Test thường (Shared Memory) | Đọc/ghi vùng nhớ có Mutex | Không mất dữ liệu, không race condition | Đạt 100% (12/12 items truyền nhận nguyên vẹn qua Bounded Buffer) | **ĐẠT (PASSED)** |
 | **TC-03** | Test biên (Edge) | Payload rỗng (0 bytes) hoặc payload cực lớn (vượt buffer) | Hệ thống từ chối an toàn hoặc phân mảnh, không crash | Đang cập nhật | Chờ test |
-| **TC-04** | Tranh chấp (Contention) | Nhiều tiến trình cùng ghi vào 1 ô nhớ | Mutex ngăn chặn ghi đè, các tiến trình chờ theo queue | Đang cập nhật | Chờ test |
+| **TC-04** | Tranh chấp (Contention) | Nhiều tiến trình cùng ghi vào 1 ô nhớ | Mutex ngăn chặn ghi đè, các tiến trình chờ theo queue | 3 Producers & 2 Consumers tranh chấp đồng thời an toàn | **ĐẠT (PASSED)** |
 | **TC-05** | Deadlock Simulation | Khóa vòng tròn giữa 2 tiến trình (P1 giữ L1 đòi L2, P2 giữ L2 đòi L1) | Phát hiện Deadlock qua Timeout/Trace, thông báo lỗi GUI | Đang cập nhật | Chờ test |
-| **TC-06** | Buffer Overflow | Gửi dữ liệu liên tục vào Queue đã đầy | Trả về trạng thái `BUFFER_FULL`, chuyển sang chờ hoặc drop | Đang cập nhật | Chờ test |
+| **TC-06** | Buffer Overflow | Gửi dữ liệu liên tục vào Queue/Buffer đã đầy | Trả về trạng thái `BLOCKED`, không làm treo luồng chính | Trả về cờ `BLOCKED` tại Semaphore empty khi buffer 4/4 | **ĐẠT (PASSED)** |
 
 ---
 
@@ -233,8 +238,18 @@ Mỗi lần chạy sẽ xuất ra file log chi tiết:
 
 ## 10. Hướng dẫn kiểm thử (Testing)
 
-Chạy bộ kiểm thử tự động với `pytest`:
+### 10.1. Chạy nhanh mô phỏng Terminal (Không cần cài đặt thư viện ngoài):
+Chạy kịch bản mô phỏng đồng thời 3 Producers và 2 Consumers với Trace log trực tiếp:
+```bash
+python3 tests/console_shm_test.py
+```
 
+### 10.2. Chạy bộ Unit Tests với Python standard library:
+```bash
+python3 -m unittest discover tests
+```
+
+### 10.3. Chạy bộ kiểm thử tự động với `pytest`:
 ```bash
 # Chạy toàn bộ test suite
 pytest
