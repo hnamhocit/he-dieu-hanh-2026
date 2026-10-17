@@ -28,3 +28,11 @@
 - [ ] Có tối thiểu 4 nguồn tham khảo uy tín và trích dẫn đầy đủ (Khai báo rõ nếu có dùng AI).
 - [ ] Video Demo chế độ công khai trình bày luồng chạy, dữ liệu và chạy thử ít nhất một test case.
 - [ ] Cuối báo cáo có bảng đóng góp (Contribution statement). Thành viên hiểu sâu sắc phần việc mình phụ trách khi bảo vệ.
+
+### 6 CÂU HỎI BẮT BUỘC CHO MỌI ĐỀ TÀI (GIẢNG VIÊN YÊU CẦU)
+- [ ] **Q1:** Biểu diễn bài toán, mô hình trạng thái và các giả định của đề tài (process, resource, memory, page, message). Có sơ đồ mô hình và cấu trúc PCB.
+- [ ] **Q2:** Mô tả giải thuật/cơ chế hoạt động theo từng bước bằng mã giả (pseudocode), flowchart hoặc state diagram. Giải thích rõ ready queue, semaphore, page table.
+- [ ] **Q3:** Cung cấp bằng chứng kết quả đúng (Expected vs Actual result) cho các trường hợp: thông thường, biên, tie-breaking, preemption, deadlock, page fault.
+- [ ] **Q4:** Thiết kế chương trình, dữ liệu CSV, GUI giúp người dùng truy vết từng bước (Gantt, memory map, frame table, queue trace).
+- [ ] **Q5:** Đo lường chỉ số đánh giá và độ phức tạp. Phân tích trade-off (fairness, throughput, latency, memory use) và liên hệ turnaround/response time, page fault, starvation.
+- [ ] **Q6:** Kế hoạch nhóm, kết quả kiểm thử stress/performance test và giới hạn sản phẩm. Có bảng contribution statement rõ ràng.
