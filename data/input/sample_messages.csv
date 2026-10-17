@@ -1,8 +1,8 @@
-id,sender,receiver,mechanism,payload_size_bytes,message,delay_ms,simulate_error
-1,Process_A,Process_B,PIPE,128,"Hello from Process A",50,NONE
-2,Process_B,Process_A,PIPE,256,"Ack from Process B",30,NONE
-3,Process_A,Process_C,SHARED_MEMORY,1024,"Shared data block alpha",100,NONE
-4,Process_C,Process_A,SHARED_MEMORY,1024,"Shared data response",80,NONE
-5,Process_B,Process_C,MESSAGE_QUEUE,512,"Queue message priority 1",20,NONE
-6,Process_A,Process_B,PIPE,4096,"Large buffer test message",150,BUFFER_OVERFLOW
-7,Process_C,Process_B,MESSAGE_QUEUE,64,"Timeout simulation message",500,TIMEOUT
+id,action,sender,receiver,message,delay_ms,priority
+1,PRODUCE,Process_A,Process_B,"Hello from Process A",50,0
+2,CONSUME,Process_B,Process_A,"",30,0
+3,PRODUCE,Process_A,Process_C,"Shared data block alpha",100,0
+4,CONSUME,Process_C,Process_A,"",80,0
+5,PRODUCE,Process_B,Process_C,"Queue message priority 1",20,1
+6,CONSUME,Process_C,Process_B,"",40,0
+7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
