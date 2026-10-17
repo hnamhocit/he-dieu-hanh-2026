@@ -237,6 +237,7 @@ id,action,sender,receiver,message,delay_ms,priority
 6,CONSUME,Process_C,Process_B,"",40,0
 7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
 ```
+Kiểm thử riêng parser: `python -m pytest tests/test_csv_parser.py -v`.
 
 ### 6.2. Dữ liệu đầu ra Trace Log (`data/output/trace_*.csv`)
 Mỗi phiên chạy mô phỏng sẽ tự động xuất ra file log chi tiết theo từng bước, ghi lại chính xác trạng thái biến đồng bộ và bộ đệm (bằng chứng phục vụ kiểm chứng Oracle):
