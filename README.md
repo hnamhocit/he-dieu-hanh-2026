@@ -237,36 +237,6 @@ id,action,sender,receiver,message,delay_ms,priority
 6,CONSUME,Process_C,Process_B,"",40,0
 7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
 ```
-
-#### Sử dụng CSVParser (HDH-30)
-
-Ví dụ đọc file mẫu (chạy tại thư mục gốc dự án):
-
-```python
-from src.utils.csv_parser import CSVParser
-
-steps = CSVParser().parse("data/input/sample_messages.csv")
-print(steps[0].action, steps[0].message, steps[0].delay_ms)
-```
-
-Kết quả là `list[SimulationStep]`, giữ thứ tự các dòng trong file.
-Parser dùng thư viện chuẩn Python, hỗ trợ UTF-8 có/không BOM và các trường
-CSV chứa dấu phẩy, dấu nháy hoặc xuống dòng.
-
-Các quy tắc bổ sung đang dùng trong parser, cần nhóm review:
-
-- Cột tùy chọn được phép thiếu; `message` mặc định `""`, ô `delay_ms`/`priority`
-  rỗng hoặc cột bị thiếu mặc định `0`.
-- `delay_ms` không âm; `priority` chấp nhận cả số nguyên âm. Message gửi được
-  phép rỗng; `CONSUME`/`RECEIVE` yêu cầu message rỗng.
-- Header dùng đúng tên cột trong schema; được đổi thứ tự cột, từ chối tên cột
-  trùng hoặc ngoài schema. Mỗi bản ghi phải đủ số trường theo header.
-- Bỏ khoảng trắng đầu/cuối metadata, giữ nguyên nội dung `message`.
-- Bỏ qua dòng trống; file không có dữ liệu bị từ chối. Dữ liệu sai gây
-  `ValueError`, kèm dòng/cột khi phù hợp, không trả về kết quả một phần.
-- Phía gọi xử lý lỗi đọc file, encoding và cú pháp CSV. Phần mã lỗi và
-  thông báo trên giao diện sẽ làm ở HDH-31.
-
 Kiểm thử riêng parser: `python -m pytest tests/test_csv_parser.py -v`.
 
 ### 6.2. Dữ liệu đầu ra Trace Log (`data/output/trace_*.csv`)
