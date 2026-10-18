@@ -54,7 +54,29 @@
 ```bash
 python src/main.py
 ```
-*(Giao diện PyQt6 cho phép nạp file CSV kịch bản, chạy mô phỏng từng bước hoặc liên tục, xem animation và biểu đồ so sánh hiệu năng).*
+Giao diện HDH-32 được bố trí theo wireframe: **CSV Input**, **Cấu hình tham số**,
+**Buffer Visualization** và **Trace Log**.
+
+![Giao diện chính HDH-32](docs/hdh32_main_window.png)
+
+1. Nhấn **Chọn file**, chọn CSV trong `data/input`.
+2. Nhấn **Kiểm tra**. File được đọc ở luồng nền; lỗi được hiển thị kèm mã lỗi.
+3. Khi CSV hợp lệ, chọn cơ chế IPC, dung lượng Buffer, số Producer/Consumer.
+4. Thử **Start → Pause → Tiếp tục → Reset**. Reset giữ nguyên CSV đã kiểm tra.
+
+Giao diện dùng `CSVParser` đã có trên `main`, không phụ thuộc nhánh HDH-31.
+Các lỗi kiểm tra dữ liệu hiển thị mã `INVALID_DATA` kèm lý do; lỗi đọc file
+hiển thị `FILE_READ_ERROR`, lỗi cú pháp CSV hiển thị `INVALID_CSV`.
+
+Đây là bản dựng layout, **chưa thực thi mô phỏng IPC**. Các nút phát tín hiệu
+`start_requested(messages, configuration)`, `pause_requested()`,
+`resume_requested()` và `reset_requested()` để kết nối bộ chạy riêng.
+Buffer, biểu đồ và thống kê ban đầu chưa có dữ liệu mô phỏng; bảng trace rỗng.
+Bộ chạy có thể gửi log qua `MainWindow.append_trace(values)` trên UI thread;
+nút xuất CSV chỉ bật khi có log. Giao diện không sinh số liệu minh họa giả.
+
+Cũng có thể khởi chạy bằng `python -m src.main`. Cần cài PyQt6 theo
+`requirements.txt`. Kiểm thử gồm GUI offscreen: `python -m unittest discover -s tests`.
 
 ---
 
