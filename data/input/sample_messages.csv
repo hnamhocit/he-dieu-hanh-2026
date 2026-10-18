@@ -1,0 +1,8 @@
+id,action,sender,receiver,message,delay_ms,priority
+1,PRODUCE,Process_A,Process_B,"Hello from Process A",50,0
+2,CONSUME,Process_B,Process_A,"",30,0
+3,PRODUCE,Process_A,Process_C,"Shared data block alpha",100,0
+4,CONSUME,Process_C,Process_A,"",80,0
+5,PRODUCE,Process_B,Process_C,"Queue message priority 1",20,1
+6,CONSUME,Process_C,Process_B,"",40,0
+7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
