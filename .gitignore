@@ -106,3 +106,7 @@ desktop.ini
 data/output/*.csv
 !data/output/.gitkeep
 *.log
+
+# Internal documents and lock files
+*.docx
+.~lock.*#
