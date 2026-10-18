@@ -5,4 +5,8 @@ id,action,sender,receiver,message,delay_ms,priority
 4,CONSUME,Process_C,Process_A,"",80,0
 5,PRODUCE,Process_B,Process_C,"Queue message priority 1",20,1
 6,CONSUME,Process_C,Process_B,"",40,0
+<<<<<<< HEAD
 7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
+=======
+7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
+>>>>>>> b390c773061de6675b1db9319783715df37a7d30
