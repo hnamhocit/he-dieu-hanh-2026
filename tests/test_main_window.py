@@ -10,18 +10,23 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QElapsedTimer, QEvent, QThreadPool, QTimer, Qt
-from PyQt6.QtGui import QFont, QFontDatabase
-from PyQt6.QtTest import QSignalSpy, QTest
-from PyQt6.QtWidgets import QApplication
+try:
+    from PyQt6.QtCore import QElapsedTimer, QEvent, QThreadPool, QTimer, Qt
+    from PyQt6.QtGui import QFont, QFontDatabase
+    from PyQt6.QtTest import QSignalSpy, QTest
+    from PyQt6.QtWidgets import QApplication
+    from src.gui.main_window import MainWindow, UIState
+    HAS_PYQT6 = True
+except ImportError:
+    HAS_PYQT6 = False
 
-from src.gui.main_window import MainWindow, UIState
 from src.utils.csv_parser import CSVParser
 
 
 SAMPLE = Path(__file__).resolve().parents[1] / "data/input/sample_messages.csv"
 
 
+@unittest.skipUnless(HAS_PYQT6, "PyQt6 is required for GUI tests")
 class TestMainWindow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

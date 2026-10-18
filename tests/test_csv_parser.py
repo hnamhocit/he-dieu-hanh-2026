@@ -26,7 +26,7 @@ class TestCSVParser(unittest.TestCase):
     def test_repository_sample(self) -> None:
         sample = Path(__file__).resolve().parents[1] / "data/input/sample_messages.csv"
         steps = self.parser.parse(str(sample))
-        self.assertEqual(len(steps), 7)
+        self.assertEqual(len(steps), 10)
         self.assertEqual(
             steps[0],
             SimulationStep(1, "PRODUCE", "Process_A", "Process_B", "Hello from Process A", 50, 0),

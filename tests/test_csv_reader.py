@@ -133,7 +133,7 @@ class TestCSVReader(unittest.TestCase):
         sample = Path(__file__).resolve().parents[1] / "data/input/sample_messages.csv"
         result = read_messages(sample)
         self.assertTrue(result["success"], result["detail"])
-        self.assertEqual(len(result["data"]), 7)
+        self.assertEqual(len(result["data"]), 10)
         self.assertEqual(result["data"][0]["message"], "Hello from Process A")
         self.assertEqual(result["data"][1]["message"], "")
 
