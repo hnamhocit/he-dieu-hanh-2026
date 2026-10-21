@@ -1,6 +1,7 @@
 """Kiểm thử nạp CSV, điều khiển và xuất trace trên Qt offscreen."""
 
 import csv
+from datetime import datetime
 import os
 from pathlib import Path
 import tempfile
@@ -76,6 +77,151 @@ class TestMainWindow(unittest.TestCase):
             QTest.qWait(10)
         self.assertFalse(self.window.controller.running, "Simulation timed out")
 
+    def wait_for_trace_rows(self, count):
+        timer = QElapsedTimer()
+        timer.start()
+        while self.window.trace_table.rowCount() < count and timer.elapsed() < 3000:
+            QTest.qWait(10)
+        self.assertEqual(self.window.trace_table.rowCount(), count)
+
+    def test_trace_appears_before_script_finishes_with_complete_fields(self):
+        for mechanism_index, mechanism_name in (
+            (0, "SHARED_MEMORY"),
+            (2, "MESSAGE_QUEUE"),
+        ):
+            with self.subTest(mechanism=mechanism_name):
+                self.load_sample()
+                self.window.mechanism_combo.setCurrentIndex(mechanism_index)
+                for step in self.window.messages:
+                    step["delay_ms"] = 0
+                self.window.messages[1]["delay_ms"] = 200
+                self.window.messages[0]["id"] = 42
+                first_step = dict(self.window.messages[0])
+                self.window._start()
+                self.wait_for_trace_rows(1)
+                self.assertTrue(self.window.controller.running)
+                values = [
+                    self.window.trace_table.item(0, column).text()
+                    for column in range(9)
+                ]
+                self.assertEqual(values[0], "1")
+                self.assertIsNotNone(datetime.fromisoformat(values[1]).tzinfo)
+                self.assertEqual(
+                    values[2:7],
+                    [
+                        "42",
+                        first_step["sender"],
+                        first_step["action"],
+                        mechanism_name,
+                        "SUCCESS",
+                    ],
+                )
+                self.assertGreaterEqual(float(values[7]), 0)
+                self.assertTrue(values[8])
+                self.assertEqual(self.window.trace_count_label.text(), "1 bản ghi")
+                self.assertTrue(self.window.export_button.isEnabled())
+                self.wait_for_run()
+                self.assertEqual(self.window.trace_table.rowCount(), SAMPLE_COUNT)
+                self.assertEqual(
+                    [
+                        self.window.trace_table.item(row, 0).text()
+                        for row in range(SAMPLE_COUNT)
+                    ],
+                    [str(index) for index in range(1, SAMPLE_COUNT + 1)],
+                )
+
+    def test_pause_and_stop_preserve_trace_and_new_run_clears_old_rows(self):
+        self.load_sample()
+        for step in self.window.messages:
+            step["delay_ms"] = 0
+        self.window.messages[1]["delay_ms"] = 200
+        self.window._start()
+        self.wait_for_trace_rows(1)
+        self.window._pause()
+        QTest.qWait(250)
+        self.assertEqual(self.window.trace_table.rowCount(), 1)
+        self.window._start()
+        self.wait_for_run()
+        self.assertEqual(self.window.trace_table.rowCount(), SAMPLE_COUNT)
+        self.window._start()
+        self.wait_for_trace_rows(1)
+        self.window._stop()
+        QTest.qWait(250)
+        self.assertEqual(self.window.trace_table.rowCount(), 1)
+        self.assertTrue(self.window.export_button.isEnabled())
+        self.window.messages[1]["delay_ms"] = 0
+        self.window._start()
+        self.assertEqual(self.window.trace_table.rowCount(), 0)
+        self.assertEqual(self.window.trace_count_label.text(), "0 bản ghi")
+        self.assertFalse(self.window.export_button.isEnabled())
+        self.wait_for_run()
+        self.assertEqual(self.window.trace_table.rowCount(), SAMPLE_COUNT)
+
+    def test_reset_and_file_selection_clear_trace(self):
+        self.load_sample()
+        for step in self.window.messages:
+            step["delay_ms"] = 0
+        self.window.messages[1]["delay_ms"] = 200
+        self.window._start()
+        self.wait_for_trace_rows(1)
+        self.window._reset()
+        self.assertEqual(self.window.trace_table.rowCount(), 0)
+        self.assertEqual(self.window.trace_count_label.text(), "0 bản ghi")
+        self.assertFalse(self.window.export_button.isEnabled())
+        self.window._start()
+        self.wait_for_trace_rows(1)
+        self.window._stop()
+        self.window.select_csv(SAMPLE)
+        self.assertEqual(self.window.trace_table.rowCount(), 0)
+        self.assertFalse(self.window.export_button.isEnabled())
+
+    def test_revalidation_clears_stale_trace_even_when_file_becomes_invalid(self):
+        path = self.directory / "scenario.csv"
+        path.write_text(SAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+        self.window.select_csv(path)
+        self.window.validate_csv()
+        self.wait_for_validation()
+        for step in self.window.messages:
+            step["delay_ms"] = 0
+        self.window._start()
+        self.wait_for_run()
+        self.assertEqual(self.window.trace_table.rowCount(), SAMPLE_COUNT)
+        path.write_text("", encoding="utf-8")
+        self.window.validate_csv()
+        self.wait_for_validation()
+        self.assertEqual(self.window.trace_table.rowCount(), 0)
+        self.assertFalse(self.window.export_button.isEnabled())
+        self.assertFalse(self.window.start_button.isEnabled())
+
+    def test_trace_follows_latest_row_until_user_scrolls_up(self):
+        self.window.show()
+        self.app.processEvents()
+        for index in range(60):
+            self.window.append_trace(
+                [
+                    index + 1,
+                    "time",
+                    index,
+                    "P1",
+                    "SEND",
+                    "SHARED_MEMORY",
+                    "SUCCESS",
+                    "0.1",
+                    "detail",
+                ]
+            )
+        self.app.processEvents()
+        scrollbar = self.window.trace_table.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        self.assertEqual(scrollbar.value(), scrollbar.maximum())
+        scrollbar.setValue(0)
+        self.window.append_trace(
+            [61, "time", 61, "P1", "SEND", "SHARED_MEMORY", "BLOCKED", "0.1", "full"]
+        )
+        self.app.processEvents()
+        self.assertEqual(scrollbar.value(), 0)
+        self.assertEqual(self.window.trace_count_label.text(), "61 bản ghi")
+
     def test_browse_loads_and_validates_csv_automatically(self):
         with patch(
             "src.gui.main_window.QFileDialog.getOpenFileName",
@@ -148,6 +294,10 @@ class TestMainWindow(unittest.TestCase):
                 )
                 self.assertEqual(self.window.failed_steps_label.text(), "2")
                 self.assertEqual(self.window.buffer_progress.value(), 0)
+                self.assertEqual(
+                    [self.window.trace_table.item(row, 6).text() for row in range(4)],
+                    ["SUCCESS", "BLOCKED", "SUCCESS", "BLOCKED"],
+                )
 
     def test_stop_during_delay_is_responsive_and_restart_begins_at_first_step(self):
         self.load_sample()
@@ -229,6 +379,9 @@ class TestMainWindow(unittest.TestCase):
             self.wait_for_run()
         self.assertEqual(self.window.state, UIState.READY)
         self.assertIn("test failure", self.window.statusBar().currentMessage())
+        self.assertEqual(self.window.trace_table.rowCount(), 1)
+        self.assertEqual(self.window.trace_table.item(0, 6).text(), "ERROR")
+        self.assertIn("test failure", self.window.trace_table.item(0, 8).text())
         self.window._start()
         self.assertTrue(self.window.controller.running)
         self.window._stop()

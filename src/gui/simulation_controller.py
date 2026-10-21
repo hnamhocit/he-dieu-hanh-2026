@@ -4,6 +4,9 @@ Các bước đầy/rỗng trả về BLOCKED rồi chuyển sang bước kế t
 Danh tính tiến trình lấy từ CSV; bộ chạy này không tạo thêm OS process.
 """
 
+from datetime import datetime
+from time import perf_counter
+
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from src.core.shared_memory import SharedMemory
@@ -12,6 +15,7 @@ from src.core.message_queue import MessageQueue
 
 class SimulationController(QObject):
     step_completed = pyqtSignal(dict)
+    trace_recorded = pyqtSignal(dict)
     finished = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -24,6 +28,7 @@ class SimulationController(QObject):
         self.steps = []
         self.index = 0
         self.mechanism = None
+        self.mechanism_name = ""
         self.running = False
         self.paused = False
         self.remaining_delay = 0
@@ -49,6 +54,7 @@ class SimulationController(QObject):
             return
 
         self.mechanism = mechanism
+        self.mechanism_name = mechanism_name
         self.steps = steps
         self.index = 0
         self.running = True
@@ -75,6 +81,7 @@ class SimulationController(QObject):
 
         step = self.steps[self.index]
         action = step["action"]
+        started = perf_counter()
 
         try:
             if action in ("PRODUCE", "SEND"):
@@ -94,9 +101,11 @@ class SimulationController(QObject):
             snapshot = self.mechanism.get_state()
 
         except Exception as error:
+            self._record_trace(step, "ERROR", str(error), started)
             self._finish(f"Lỗi khi chạy bước {step['id']}: {error}")
             return
 
+        self._record_trace(step, result.status, result.detail, started)
         self.index += 1
 
         self.step_completed.emit(
@@ -110,6 +119,23 @@ class SimulationController(QObject):
         )
 
         self._schedule_next()
+
+    def _record_trace(self, step, status, detail, started):
+        """Thời lượng xử lý IPC và snapshot, không tính delay_ms của kịch bản."""
+        self.trace_recorded.emit(
+            {
+                "timestamp": datetime.now()
+                .astimezone()
+                .isoformat(sep=" ", timespec="milliseconds"),
+                "step_id": step["id"],
+                "process": step["sender"],
+                "action": step["action"],
+                "mechanism": self.mechanism_name,
+                "status": status,
+                "latency_ms": (perf_counter() - started) * 1000,
+                "detail": detail,
+            }
+        )
 
     def pause(self):
         if not self.running or self.paused:

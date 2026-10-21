@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -141,6 +142,7 @@ class MainWindow(QMainWindow):
         self.stop_requested.connect(self.controller.stop)
 
         self.controller.step_completed.connect(self._on_step_completed)
+        self.controller.trace_recorded.connect(self._on_trace_recorded)
         self.controller.finished.connect(self._on_simulation_finished)
         self._set_state(UIState.EMPTY)
         self.statusBar().showMessage(
@@ -377,6 +379,7 @@ class MainWindow(QMainWindow):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
         self.trace_table.setMinimumHeight(110)
+        self.trace_table.setWordWrap(False)
         self.trace_table.setSizeAdjustPolicy(
             QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents
         )
@@ -388,7 +391,8 @@ class MainWindow(QMainWindow):
         self.trace_table.setColumnWidth(1, 155)
         layout.addWidget(self.trace_table)
         row = QHBoxLayout()
-        row.addWidget(_label("Log sẽ xuất hiện khi kết nối bộ chạy IPC."))
+        self.trace_count_label = _label("0 bản ghi")
+        row.addWidget(self.trace_count_label)
         row.addStretch()
         self.export_button = QPushButton("Xuất Trace CSV")
         self.export_button.setIcon(
@@ -421,8 +425,7 @@ class MainWindow(QMainWindow):
         self.row_count_label.setText("0")
         self.total_steps_label.setText("0")
         self._clear_run_display()
-        self.trace_table.setRowCount(0)
-        self.export_button.setEnabled(False)
+        self._clear_trace()
         try:
             self.file_size_label.setText(
                 f"{self.selected_path.stat().st_size / 1024:.2f} KB"
@@ -443,6 +446,7 @@ class MainWindow(QMainWindow):
         self.messages = []
         self.row_count_label.setText("0")
         self.total_steps_label.setText("0")
+        self._clear_trace()
         self.file_feedback.setStyleSheet("")
         self.file_feedback.setText("Đang đọc và kiểm tra CSV…")
         self._set_state(UIState.LOADING)
@@ -523,8 +527,7 @@ class MainWindow(QMainWindow):
                 "Cơ chế này chưa được hỗ trợ. Hãy chọn Shared Memory hoặc Message Queue."
             )
             return
-        self.trace_table.setRowCount(0)
-        self.export_button.setEnabled(False)
+        self._clear_trace()
         self._clear_run_display()
         self._set_state(UIState.RUNNING)
         self.statusBar().showMessage("Đang chạy mô phỏng.")
@@ -572,8 +575,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _reset(self):
         if self.state in (UIState.RUNNING, UIState.PAUSED):
-            self.trace_table.setRowCount(0)
-            self.export_button.setEnabled(False)
+            self._clear_trace()
             self.reset_requested.emit()
             self._clear_run_display()
             self._set_state(UIState.READY)
@@ -583,15 +585,51 @@ class MainWindow(QMainWindow):
         self.controller.stop()
         super().closeEvent(event)
 
+    def _clear_trace(self):
+        self.trace_table.setRowCount(0)
+        self.trace_count_label.setText("0 bản ghi")
+        self.export_button.setEnabled(False)
+
+    @pyqtSlot(dict)
+    def _on_trace_recorded(self, record):
+        self.append_trace(
+            [
+                self.trace_table.rowCount() + 1,
+                record["timestamp"],
+                record["step_id"],
+                record["process"],
+                record["action"],
+                record["mechanism"],
+                record["status"],
+                f"{record['latency_ms']:.3f}",
+                record["detail"],
+            ]
+        )
+
     def append_trace(self, values: list):
         """Điểm tích hợp dành cho bộ chạy; gọi trên UI thread bằng signal/slot."""
         if len(values) != len(self.TRACE_COLUMNS):
             raise ValueError("Một dòng trace phải có đủ 9 trường.")
+        scrollbar = self.trace_table.verticalScrollBar()
+        follow_latest = scrollbar.value() == scrollbar.maximum()
         row = self.trace_table.rowCount()
         self.trace_table.insertRow(row)
         for column, value in enumerate(values):
-            self.trace_table.setItem(row, column, QTableWidgetItem(str(value)))
+            item = QTableWidgetItem(str(value))
+            item.setToolTip(str(value))
+            self.trace_table.setItem(row, column, item)
+        status_color = {
+            "SUCCESS": "#14745b",
+            "BLOCKED": "#9a6700",
+            "TIMEOUT": "#9a6700",
+            "ERROR": "#b42318",
+        }.get(str(values[6]))
+        if status_color:
+            self.trace_table.item(row, 6).setForeground(QColor(status_color))
+        self.trace_count_label.setText(f"{row + 1} bản ghi")
         self.export_button.setEnabled(True)
+        if follow_latest:
+            self.trace_table.scrollToBottom()
 
     @pyqtSlot()
     def _choose_export_path(self):
