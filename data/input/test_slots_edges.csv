@@ -1,0 +1,8 @@
+id,action,sender,receiver,message,delay_ms,priority
+1,PRODUCE,P1,C1,Hello,500,0
+2,PRODUCE,P1,C1,World,500,0
+3,PRODUCE,P2,C1,Buffer full,500,0
+4,CONSUME,C1,P1,,500,0
+5,CONSUME,C1,P1,,500,0
+6,CONSUME,C2,P1,,500,0
+7,PRODUCE,P1,C1,Wrap around,500,0

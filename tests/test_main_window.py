@@ -24,6 +24,7 @@ from src.utils.csv_parser import CSVParser
 
 
 SAMPLE = Path(__file__).resolve().parents[1] / "data/input/sample_messages.csv"
+SAMPLE_COUNT = len(CSVParser().parse(SAMPLE))
 
 
 @unittest.skipUnless(HAS_PYQT6, "PyQt6 is required for GUI tests")
@@ -46,6 +47,7 @@ class TestMainWindow(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name)
         self.window = MainWindow()
+        self.window.controller.animation_ms = 0
 
     def tearDown(self):
         QThreadPool.globalInstance().waitForDone(5000)
@@ -77,7 +79,7 @@ class TestMainWindow(unittest.TestCase):
         self.window.validate_csv()
         self.wait_for_validation()
         self.assertTrue(self.window.start_button.isEnabled())
-        self.assertEqual(self.window.row_count_label.text(), "7")
+        self.assertEqual(self.window.row_count_label.text(), str(SAMPLE_COUNT))
         self.assertEqual(self.window.messages[0]["id"], 1)
         self.assertEqual(self.window.trace_table.rowCount(), 0)
 
@@ -138,7 +140,7 @@ class TestMainWindow(unittest.TestCase):
         reset = QSignalSpy(self.window.reset_requested)
         QTest.mouseClick(self.window.start_button, Qt.MouseButton.LeftButton)
         self.assertEqual(len(start), 1)
-        self.assertEqual(len(start[0][0]), 7)
+        self.assertEqual(len(start[0][0]), SAMPLE_COUNT)
         self.assertEqual(start[0][1], {
             "mechanism": "MESSAGE_QUEUE", "buffer_capacity": 8,
             "producer_count": 3, "consumer_count": 2,
@@ -154,7 +156,7 @@ class TestMainWindow(unittest.TestCase):
         QTest.mouseClick(self.window.reset_button, Qt.MouseButton.LeftButton)
         self.assertEqual(len(reset), 1)
         self.assertEqual(self.window.state, UIState.READY)
-        self.assertEqual(len(self.window.messages), 7)
+        self.assertEqual(len(self.window.messages), SAMPLE_COUNT)
         self.assertTrue(self.window.buffer_spin.isEnabled())
 
     def test_validation_runs_without_blocking_ui(self):
@@ -227,6 +229,100 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
         self.assertEqual(scroll.verticalScrollBar().maximum(), 0)
         self.assertTrue(self.window.export_button.isVisible())
+
+    def wait_for_simulation(self):
+        timer = QElapsedTimer()
+        timer.start()
+        while self.window.controller.running and timer.elapsed() < 3000:
+            QTest.qWait(5)
+        self.assertFalse(self.window.controller.running, "Simulation timed out")
+
+    def test_csv_runs_core_updates_slots_stats_and_exports_trace(self):
+        self.window.show()
+        path = self.directory / "slots.csv"
+        path.write_text(
+            "id,action,sender,receiver,message,delay_ms,priority\n"
+            "1,PRODUCE,P1,C1,Hello,0,0\n"
+            "2,PRODUCE,P1,C1,World,0,0\n"
+            "3,CONSUME,C1,P1,,0,0\n", encoding="utf-8",
+        )
+        self.window.select_csv(path)
+        self.window.validate_csv()
+        self.wait_for_validation()
+        self.window.buffer_spin.setValue(2)
+        self.window._start()
+        self.wait_for_simulation()
+        self.assertEqual(self.window.buffer_slots.buffer[1]["message"], "World")
+        self.assertIsNone(self.window.buffer_slots.buffer[0])
+        self.assertEqual(self.window.buffer_slots.slot_state(1), "WRITTEN")
+        self.assertEqual(self.window.buffer_percent_label.text(), "50%")
+        self.assertEqual(self.window.processed_steps_label.text(), "3")
+        self.assertEqual(self.window._produced, 2)
+        self.assertEqual(self.window._consumed, 1)
+        self.assertEqual(len(self.window.buffer_chart.samples), 4)
+        self.assertEqual(self.window.trace_table.rowCount(), 3)
+        self.app.processEvents()
+        self.assertEqual(self.window.centralWidget().verticalScrollBar().maximum(), 0)
+        exported = self.directory / "result.csv"
+        self.assertTrue(self.window.export_trace(exported))
+        with exported.open(encoding="utf-8-sig", newline="") as stream:
+            rows = list(csv.reader(stream))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[-1][4], "CONSUME")
+        self.assertIn("buffer=", rows[-1][-1])
+        self.assertIn("Empty=1", rows[-1][-1])
+        self.window._reset()
+        self.assertEqual(self.window.buffer_slots.buffer, [None, None])
+        self.assertEqual(self.window.buffer_chart.samples, [])
+        self.assertEqual(self.window.processed_steps_label.text(), "0")
+        self.assertEqual(len(self.window.messages), 3)
+
+    def test_reset_while_locked_clears_transient_display_and_timer(self):
+        self.load_sample()
+        self.window.controller.animation_ms = 60
+        self.window.messages = [dict(self.window.messages[0], delay_ms=0)]
+        self.window._start()
+        timer = QElapsedTimer()
+        timer.start()
+        while self.window.buffer_slots.phase is None and timer.elapsed() < 1000:
+            QTest.qWait(5)
+        self.assertEqual(self.window.buffer_slots.phase, "LOCKED")
+        self.assertIn("Khóa bởi", self.window.sync_state_label.text())
+        self.window._pause()
+        QTest.qWait(100)
+        self.assertEqual(self.window.buffer_slots.phase, "LOCKED")
+        self.window._reset()
+        QTest.qWait(150)
+        self.assertIsNone(self.window.buffer_slots.phase)
+        self.assertEqual(self.window.buffer_slots.buffer, [None] * 5)
+        self.assertEqual(self.window.trace_table.rowCount(), 0)
+        self.assertFalse(self.window.controller.timer.isActive())
+
+    def test_large_buffer_follows_active_slot_and_allows_paging(self):
+        widget = self.window.buffer_slots
+        widget.resize(400, 108)
+        buffer = [None] * 1024
+        buffer[1023] = {"id": 42, "message": "<message>"}
+        widget.set_frame({"phase": "READING", "slot_index": 1023,
+                          "snapshot": {"capacity": 1024, "buffer": buffer}})
+        self.assertLessEqual(widget.first_visible, 1023)
+        self.assertGreater(widget.first_visible + widget.visible_count(), 1023)
+        self.assertEqual(widget.slot_state(1023), "READING")
+        self.assertFalse(widget.grab().isNull())
+        QTest.keyClick(widget, Qt.Key.Key_Left)
+        self.assertLess(widget.first_visible + widget.visible_count(), 1024)
+        widget.set_snapshot({"capacity": 1024, "buffer": buffer})
+        self.assertEqual(widget.slot_state(1023), "WRITTEN")
+
+    def test_failed_core_call_is_reported_in_gui_and_trace(self):
+        self.load_sample()
+        with patch("src.gui.simulation_controller.SharedMemory.produce", side_effect=RuntimeError("IPC error")):
+            self.window._start()
+            self.wait_for_simulation()
+        self.assertEqual(self.window.state, UIState.READY)
+        self.assertIn("IPC error", self.window.statusBar().currentMessage())
+        self.assertEqual(self.window.trace_table.item(0, 6).text(), "ERROR")
+        self.assertEqual(self.window.failed_steps_label.text(), "1")
 
 
 if __name__ == "__main__":
