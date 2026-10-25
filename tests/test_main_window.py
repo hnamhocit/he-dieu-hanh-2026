@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 try:
     from PyQt6.QtCore import QElapsedTimer, QEvent, QThreadPool, QTimer, Qt

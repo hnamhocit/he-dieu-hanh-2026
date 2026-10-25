@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
         self.controller.frame_changed.connect(self._on_frame_changed)
         self.controller.trace_recorded.connect(self._on_trace_recorded)
 
-        self.statusBar().showMessage("Chọn file CSV → Kiểm tra → Start để chạy mô phỏng.")
+        self.statusBar().clearMessage()
 
     def _build_layout(self):
         scroll = QScrollArea()
@@ -119,7 +119,7 @@ class MainWindow(QMainWindow):
         page.setObjectName("page")
         scroll.setWidget(page)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
         title = QFrame()
@@ -131,16 +131,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
 
         top = QHBoxLayout()
-        top.setSpacing(12)
+        top.setSpacing(14)
         top.addWidget(self._build_csv_panel(), 1)
         top.addWidget(self._build_config_panel(), 1)
         layout.addLayout(top)
         layout.addWidget(self._build_buffer_panel(), 3)
         layout.addWidget(self._build_trace_panel(), 2)
-        layout.addWidget(_label(
-            "① Chọn file CSV    →    ② Kiểm tra & cấu hình    →    ③ Start / Pause / Reset"
-            "    →    ④ Theo dõi Buffer & Log    →    ⑤ Xuất Trace CSV", "flow"
-        ))
 
     def _build_csv_panel(self):
         group = QGroupBox("▣  CSV Input")
@@ -151,8 +147,10 @@ class MainWindow(QMainWindow):
         self.file_path.setPlaceholderText("Chưa chọn file…")
         self.file_path.setAccessibleName("Đường dẫn file CSV")
         self.browse_button = QPushButton("Chọn file")
+        self.browse_button.setObjectName("browseButton")
         self.browse_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         self.check_button = QPushButton("Kiểm tra")
+        self.check_button.setObjectName("checkButton")
         self.check_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
         self.browse_button.clicked.connect(self._choose_file)
         self.check_button.clicked.connect(self.validate_csv)
@@ -173,7 +171,7 @@ class MainWindow(QMainWindow):
         form.addRow("Kích thước:", self.file_size_label)
         form.addRow("Trạng thái:", self.file_state_label)
         layout.addWidget(info)
-        self.file_feedback = _label("Chọn CSV UTF-8 để kiểm tra dữ liệu đầu vào.")
+        self.file_feedback = _label("")
         self.file_feedback.setWordWrap(True)
         layout.addWidget(self.file_feedback)
         return group
@@ -227,8 +225,7 @@ class MainWindow(QMainWindow):
             button.clicked.connect(callback)
             controls.addWidget(button, 1)
         layout.addLayout(controls)
-        self.control_state_label = _label("Chưa chọn file")
-        layout.addWidget(self.control_state_label)
+        self.control_state_label = _label("")
         self.buffer_spin.valueChanged.connect(self._capacity_changed)
         return group
 
@@ -236,7 +233,7 @@ class MainWindow(QMainWindow):
         card = QFrame()
         card.setObjectName(name)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.addWidget(_label(title, "cardTitle"))
         labels = []
         for text in counter_labels:
@@ -253,9 +250,10 @@ class MainWindow(QMainWindow):
         group.setObjectName("bufferGroup")
         layout = QVBoxLayout(group)
         actors = QHBoxLayout()
+        actors.setSpacing(14)
         actors.addWidget(self._actor_card("◉  Producer", "producerCard",
                                          ("Tiến trình: —", "Đã ghi: 0")), 2)
-        actors.addWidget(_label("→", "arrow"))
+        actors.addWidget(_label("➔", "arrow"), 0, Qt.AlignmentFlag.AlignCenter)
         buffer_card = QFrame()
         buffer_card.setObjectName("bufferCard")
         buffer_layout = QVBoxLayout(buffer_card)
@@ -282,12 +280,13 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.buffer_percent_label)
         buffer_layout.addLayout(progress_row)
         actors.addWidget(buffer_card, 6)
-        actors.addWidget(_label("→", "arrow"))
+        actors.addWidget(_label("➔", "arrow"), 0, Qt.AlignmentFlag.AlignCenter)
         actors.addWidget(self._actor_card("◉  Consumer", "consumerCard",
                                          ("Tiến trình: —", "Đã đọc: 0")), 2)
         layout.addLayout(actors)
 
         lower = QHBoxLayout()
+        lower.setSpacing(14)
         chart = QFrame()
         chart.setObjectName("chartCard")
         chart_layout = QVBoxLayout(chart)
@@ -300,14 +299,14 @@ class MainWindow(QMainWindow):
         stats_layout = QVBoxLayout(stats)
         stats_layout.addWidget(_label("Thống kê nhanh", "cardTitle"))
         stats_form = QFormLayout()
-        self.total_steps_label = _label("0")
-        stats_form.addRow("Tổng số bước", self.total_steps_label)
-        self.processed_steps_label = _label("0")
-        self.failed_steps_label = _label("0")
-        self.throughput_label = _label("0")
-        stats_form.addRow("Đã xử lý", self.processed_steps_label)
-        stats_form.addRow("Bị chặn / lỗi", self.failed_steps_label)
-        stats_form.addRow("Thông lượng mô phỏng (msg/s)", self.throughput_label)
+        self.total_steps_label = _label("0", "statTotal")
+        stats_form.addRow("Tổng số bước:", self.total_steps_label)
+        self.processed_steps_label = _label("0", "statProcessed")
+        self.failed_steps_label = _label("0", "statFailed")
+        self.throughput_label = _label("0", "statThroughput")
+        stats_form.addRow("Đã xử lý:", self.processed_steps_label)
+        stats_form.addRow("Bị chặn / lỗi:", self.failed_steps_label)
+        stats_form.addRow("Thông lượng (msg/s):", self.throughput_label)
         stats_layout.addLayout(stats_form)
         stats_layout.addStretch()
         lower.addWidget(stats, 3)
@@ -335,9 +334,9 @@ class MainWindow(QMainWindow):
         self.trace_table.setColumnWidth(1, 155)
         layout.addWidget(self.trace_table)
         row = QHBoxLayout()
-        row.addWidget(_label("Mỗi bước CSV tạo một dòng log kết quả."))
         row.addStretch()
         self.export_button = QPushButton("Xuất Trace CSV")
+        self.export_button.setObjectName("exportButton")
         self.export_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self._choose_export_path)
@@ -371,7 +370,7 @@ class MainWindow(QMainWindow):
         except OSError:
             self.file_size_label.setText("Không xác định")
         self.file_feedback.setStyleSheet("")
-        self.file_feedback.setText("Nhấn Kiểm tra để xác nhận dữ liệu CSV.")
+        self.file_feedback.setText("")
         self._set_state(UIState.SELECTED)
 
     @pyqtSlot()
@@ -410,8 +409,8 @@ class MainWindow(QMainWindow):
             widget.setValue(count)
         self.row_count_label.setText(str(len(self.messages)))
         self.total_steps_label.setText(str(len(self.messages)))
-        self.file_feedback.setStyleSheet("color: #14745b;")
-        self.file_feedback.setText("CSV hợp lệ. Chọn cấu hình rồi nhấn Start.")
+        self.file_feedback.setStyleSheet("color: #15803d; font-weight: 600;")
+        self.file_feedback.setText("CSV hợp lệ")
         self._set_state(UIState.READY)
 
     def configuration(self) -> dict:
@@ -526,7 +525,7 @@ class MainWindow(QMainWindow):
 
         resuming = self.state == UIState.PAUSED
         self._set_state(UIState.RUNNING)
-        self.statusBar().showMessage("Đang chạy mô phỏng.")
+        self.statusBar().clearMessage()
 
         if resuming:
             if self._paused_at is not None:
@@ -552,7 +551,7 @@ class MainWindow(QMainWindow):
             self._paused_at = perf_counter()
             self._set_state(UIState.PAUSED)
             self.pause_requested.emit()
-            self.statusBar().showMessage("Đã tạm dừng, nhấn Tiếp tục để chạy tiếp.")
+            self.statusBar().clearMessage()
 
     @pyqtSlot()
     def _reset(self):
@@ -572,9 +571,7 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(False)
 
         self._set_state(UIState.READY)
-        self.statusBar().showMessage(
-            "Đã reset. Giữ nguyên CSV đã nạp."
-        )
+        self.statusBar().clearMessage()
 
     @pyqtSlot(dict)
     def _on_step_completed(self, event):
@@ -617,7 +614,10 @@ class MainWindow(QMainWindow):
             self._show_snapshot(snapshot)
         self._update_actors()
         self._set_state(UIState.READY)
-        self.statusBar().showMessage(message)
+        if any(keyword in message.lower() for keyword in ("lỗi", "error", "không thể", "thất bại")):
+            self.statusBar().showMessage(message)
+        else:
+            self.statusBar().clearMessage()
 
     def closeEvent(self, event):
         self.controller.reset()

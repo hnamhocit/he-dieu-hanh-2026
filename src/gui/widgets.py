@@ -4,15 +4,35 @@ from copy import deepcopy
 from html import escape
 
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 
 class BufferSlots(QWidget):
-    COLORS = {"EMPTY": "#eef2f6", "LOCKED": "#fde68a",
-              "WRITTEN": "#bbf7d0", "READING": "#bfdbfe"}
-    LABELS = {"EMPTY": "Trống", "LOCKED": "Đang khóa",
-              "WRITTEN": "Đã ghi", "READING": "Đang đọc"}
+    COLORS = {
+        "EMPTY": "#f8fafc",
+        "LOCKED": "#fef3c7",
+        "WRITTEN": "#dcfce7",
+        "READING": "#dbeafe",
+    }
+    BORDER_COLORS = {
+        "EMPTY": "#cbd5e1",
+        "LOCKED": "#f59e0b",
+        "WRITTEN": "#10b981",
+        "READING": "#2563eb",
+    }
+    TEXT_COLORS = {
+        "EMPTY": "#64748b",
+        "LOCKED": "#b45309",
+        "WRITTEN": "#047857",
+        "READING": "#1d4ed8",
+    }
+    LABELS = {
+        "EMPTY": "Trống",
+        "LOCKED": "Đang khóa",
+        "WRITTEN": "Đã ghi",
+        "READING": "Đang đọc",
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -116,28 +136,41 @@ class BufferSlots(QWidget):
             )
             self._hit_boxes.append((rect, index))
 
-            # Vẽ nền và viền ô.
-            painter.setPen(QPen(QColor("#94a3b8"), 1))
+            # Vẽ nền và viền ô rõ nét, nổi bật theo trạng thái
+            border_color = self.BORDER_COLORS.get(state, "#94a3b8")
+            pen_width = 2.0 if state in ("LOCKED", "READING") else 1.5
+            painter.setPen(QPen(QColor(border_color), pen_width))
             painter.setBrush(QColor(self.COLORS[state]))
-            painter.drawRoundedRect(rect, 5, 5)
+            painter.drawRoundedRect(rect, 6, 6)
 
-            # Vẽ tên ô ở phía trên.
-            painter.setPen(QColor("#475569"))
+            # Vẽ tên ô ở phía trên
+            painter.setPen(QColor("#334155"))
             painter.drawText(
                 QRectF(rect.x(), 2, rect.width(), 20),
                 Qt.AlignmentFlag.AlignCenter,
                 f"Ô {index}",
             )
+
+            # Nhãn trạng thái nổi bật
+            painter.setPen(QColor(self.TEXT_COLORS.get(state, "#475569")))
+            font = painter.font()
+            font.setBold(True)
+            painter.setFont(font)
             painter.drawText(
-                QRectF(rect.x(), rect.y(), rect.width(), 28),
-                Qt.AlignmentFlag.AlignCenter, self.LABELS[state],
+                QRectF(rect.x(), rect.y() + 4, rect.width(), 24),
+                Qt.AlignmentFlag.AlignCenter,
+                self.LABELS[state],
             )
+            font.setBold(False)
+            painter.setFont(font)
+
             label = painter.fontMetrics().elidedText(
                 text,
                 Qt.TextElideMode.ElideRight,
                 max(1, int(rect.width() - 8)),
             )
 
+            # Dữ liệu bên trong ô
             painter.setPen(QColor("#0f172a"))
             painter.drawText(
                 QRectF(rect.x(), rect.y() + 28, rect.width(), 24),
@@ -145,7 +178,7 @@ class BufferSlots(QWidget):
                 label,
             )
 
-        painter.setPen(QColor("#52677b"))
+        painter.setPen(QColor("#64748b"))
         hint = f"Ô {self.first_visible}–{self.first_visible + visible - 1} / {self.capacity}"
         if visible < self.capacity:
             hint += " · Cuộn / phím ← → để xem thêm"
@@ -176,15 +209,15 @@ class BufferChart(QWidget):
         plot = QRectF(40, 12, max(1, self.width() - 58), max(1, self.height() - 36))
         for value in (0, 50, 100):
             y = plot.bottom() - plot.height() * value / 100
-            painter.setPen(QPen(QColor("#e5edf4"), 1))
+            painter.setPen(QPen(QColor("#e2e8f0"), 1))
             painter.drawLine(int(plot.left()), int(y), int(plot.right()), int(y))
-            painter.setPen(QColor("#60758a"))
+            painter.setPen(QColor("#64748b"))
             painter.drawText(QRectF(0, y - 9, 34, 18), Qt.AlignmentFlag.AlignRight,
                              f"{value}%")
-        painter.setPen(QPen(QColor("#bed0df"), 1))
+        painter.setPen(QPen(QColor("#cbd5e1"), 1.5))
         painter.drawLine(plot.bottomLeft(), plot.bottomRight())
         painter.drawLine(plot.bottomLeft(), plot.topLeft())
-        painter.setPen(QColor("#60758a"))
+        painter.setPen(QColor("#64748b"))
         if not self.samples:
             painter.drawText(plot, Qt.AlignmentFlag.AlignCenter, "Chưa có dữ liệu mô phỏng")
         else:
@@ -193,13 +226,15 @@ class BufferChart(QWidget):
             points = [(plot.left() + (time - first) / span * plot.width(),
                        plot.bottom() - value / 100 * plot.height())
                       for time, value in self.samples]
-            painter.setPen(QPen(QColor("#2289c7"), 2))
+            painter.setPen(QPen(QColor("#2563eb"), 2.5))
             for (x1, y1), (x2, y2) in zip(points, points[1:]):
                 painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+            painter.setBrush(QColor("#2563eb"))
             for x, y in points:
-                painter.drawEllipse(QRectF(x - 2, y - 2, 4, 4))
-            painter.setPen(QColor("#60758a"))
+                painter.drawEllipse(QRectF(x - 3, y - 3, 6, 6))
+            painter.setPen(QColor("#1e293b"))
             painter.drawText(plot, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
                              f"{first:.1f}–{self.samples[-1][0]:.1f} s")
+        painter.setPen(QColor("#64748b"))
         painter.drawText(QRectF(plot.left(), plot.bottom() + 5, plot.width(), 20),
                          Qt.AlignmentFlag.AlignRight, "Thời gian (s)")
