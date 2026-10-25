@@ -127,6 +127,44 @@ class TestSharedMemory(unittest.TestCase):
         self.assertEqual(state["full"], 0)
         self.assertEqual(state["blocked_processes"], [])
 
+    def test_events_capture_actual_locked_write_and_read_snapshots(self):
+        written = []
+        self.shm.produce({"id": 1, "message": "Hello"}, "P1", events=written)
+        self.assertEqual([event["phase"] for event in written], ["LOCKED", "WRITTEN"])
+        self.assertIsNone(written[0]["snapshot"]["buffer"][0])
+        self.assertEqual(written[1]["snapshot"]["buffer"][0]["id"], 1)
+        for event in written:
+            self.assertEqual(event["snapshot"]["mutex"], 0)
+            self.assertEqual(event["snapshot"]["mutex_holder"], "P1")
+            self.assertEqual(event["slot_index"], 0)
+        read = []
+        self.shm.consume("C1", events=read)
+        self.assertEqual([event["phase"] for event in read], ["LOCKED", "READING"])
+        self.assertEqual(read[-1]["snapshot"]["buffer"][0]["id"], 1)
+        self.assertIsNone(self.shm.get_state()["buffer"][0])
+        self.assertEqual(self.shm.get_state()["mutex"], 1)
+        # Các snapshot lịch sử không bị xóa khi Core thay đổi buffer.
+        self.assertEqual(written[1]["snapshot"]["count"], 1)
+
+    def test_blocked_operation_has_no_locked_animation(self):
+        events = []
+        self.assertTrue(self.shm.consume(events=events).is_blocked)
+        self.assertEqual(events, [])
+
+    def test_nonblocking_mutex_contention_restores_semaphore(self):
+        self.shm._mutex.acquire()
+        try:
+            self.assertTrue(self.shm.produce("A", timeout=0.0).is_blocked)
+        finally:
+            self.shm._mutex.release()
+        self.assertTrue(self.shm.produce("A"))
+        self.shm._mutex.acquire()
+        try:
+            self.assertTrue(self.shm.consume(timeout=0.0).is_blocked)
+        finally:
+            self.shm._mutex.release()
+        self.assertEqual(self.shm.consume().data, "A")
+
 
 if __name__ == "__main__":
     unittest.main()

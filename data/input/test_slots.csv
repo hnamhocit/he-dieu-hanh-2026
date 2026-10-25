@@ -1,0 +1,5 @@
+id,action,sender,receiver,message,delay_ms,priority
+1,PRODUCE,P1,C1,Hello,1000,0
+2,PRODUCE,P1,C1,World,1000,0
+3,CONSUME,C1,P1,,1000,0
+4,CONSUME,C1,P1,,1000,0

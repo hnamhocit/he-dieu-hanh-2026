@@ -102,6 +102,8 @@ class SharedMemory(IIPCMechanism):
         item: Any,
         process_id: str = "Producer",
         timeout: float | None = 0.0,
+        *,
+        events: list[dict[str, Any]] | None = None,
     ) -> IPCResult:
         packet = self._normalize_packet(item, process_id)
         start_time = time.time()
@@ -196,31 +198,24 @@ class SharedMemory(IIPCMechanism):
         # GIAI ĐOẠN 2: WAIT(MUTEX) - Vào Critical Section
         # =====================================================================
         # KHÓA MUTEX: Bảo vệ thao tác ghi dữ liệu và dịch con trỏ
-        self._mutex.acquire()
-        log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
-        
+        if not self._mutex.acquire(blocking=is_blocking):
+            self._empty.release()
+            return IPCResult(
+                status=IPCStatus.BLOCKED.value, success=False,
+                detail=f"[{process_id}] bị BLOCKED tại Mutex.",
+            )
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
 
             # --- BẮT ĐẦU CRITICAL SECTION ---
             slot_index = self._in_ptr
-            self._buffer[slot_index] = item
-            log_trace("WRITE_SLOT", f"Slot: {slot_index}")
-            
-            self._in_ptr = (self._in_ptr + 1) % self._capacity
-            self._count += 1
-            self._step_counter += 1
-        try:
-            with self._state_lock:
-                self._mutex_holder = process_id
-
-            # --- BẮT ĐẦU CRITICAL SECTION ---
-            slot_index = self._in_ptr
+            self._record_event(events, "LOCKED", slot_index, process_id)
             self._buffer[slot_index] = item
             self._in_ptr = (self._in_ptr + 1) % self._capacity
             self._count += 1
             self._step_counter += 1
+            self._record_event(events, "WRITTEN", slot_index, process_id)
             # --- KẾT THÚC CRITICAL SECTION ---
 
         finally:
@@ -260,6 +255,8 @@ class SharedMemory(IIPCMechanism):
         self,
         process_id: str = "Consumer",
         timeout: float | None = 0.0,
+        *,
+        events: list[dict[str, Any]] | None = None,
     ) -> IPCResult:
         """
         Lấy một item ra khỏi vùng nhớ chia sẻ (Consumer Logic).
@@ -334,14 +331,20 @@ class SharedMemory(IIPCMechanism):
         # GIAI ĐOẠN 2: WAIT(MUTEX) - Vào Critical Section
         # =====================================================================
         # KHÓA MUTEX: Bảo vệ thao tác đọc dữ liệu và cập nhật con trỏ
-        self._mutex.acquire()
-        log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
+        if not self._mutex.acquire(blocking=is_blocking):
+            self._full.release()
+            return IPCResult(
+                status=IPCStatus.BLOCKED.value, success=False,
+                detail=f"[{process_id}] bị BLOCKED tại Mutex.",
+            )
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
 
             # --- BẮT ĐẦU CRITICAL SECTION ---
             slot_index = self._out_ptr
+            self._record_event(events, "LOCKED", slot_index, process_id)
+            self._record_event(events, "READING", slot_index, process_id)
             item = self._buffer[slot_index]
             log_trace("READ_SLOT", f"Slot: {slot_index}")
             self._buffer[slot_index] = None  # Xóa sạch ô nhớ sau khi đọc (Clear slot)
@@ -386,6 +389,20 @@ if packet.simulate_error == "CHECKSUM":
                 f"(out_ptr: {slot_index} -> {self._out_ptr}, count: {self._count}/{self._capacity})"
             ),
         )
+
+    def _record_event(self, events, phase, slot_index, process_id):
+        """Thu thập snapshot trong thao tác, không gọi GUI hoặc chờ animation.
+
+        Chỉ dùng danh sách riêng cho từng lời gọi. Caller không được thay đổi
+        payload trong khi đang phát lại sự kiện.
+        """
+        if events is not None:
+            events.append({
+                "phase": phase,
+                "slot_index": slot_index,
+                "process_id": process_id,
+                "snapshot": self.get_state(),
+            })
 
     def get_state(self) -> dict[str, Any]:
         """
