@@ -4,18 +4,18 @@ Mô tả: Hiện thực cơ chế IPC Shared Memory với kiến trúc Bounded B
        Sử dụng threading.Semaphore và threading.Lock để đồng bộ hóa hoàn toàn.
        Tách biệt khỏi GUI, hỗ trợ cả cơ chế Non-blocking (try_acquire) cho GUI ticker
        lẫn Blocking/Timeout cho Worker Threads mà không gây treo Main Thread.
-Task: HDH-24 - Code hoàn thiện và Test luồng lõi Shared Memory (tích hợp Mutex, Semaphore).
+Tasks: HDH-24, HDH-86, HDH-90
 Python version: 3.10+
 """
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from typing import Any
-from src.core import log_trace 
 
-from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
+from src.core import log_trace
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 
 
@@ -32,11 +32,15 @@ class SharedMemory(IIPCMechanism):
     - `full` (Counting Semaphore, khởi tạo = 0): Đếm số lượng ô nhớ chứa dữ liệu.
       Khi full == 0 (Buffer rỗng), Consumer bắt buộc phải chờ (Wait/BLOCKED).
 
-    Đặc tính quan trọng phục vụ GUI:
+    Đặc tính quan trọng phục vụ GUI & Multi-threading (HDH-86):
     - Khi Buffer Full hoặc Buffer Empty, nếu gọi với `timeout=0.0` (mặc định), hàm sẽ sử dụng
       `try_acquire` (non-blocking) và trả về ngay lập tức `status="BLOCKED"`.
       Tuyệt đối KHÔNG có vòng lặp `while True` bận (Busy-waiting) gây đông cứng giao diện.
+    - Rollback Semaphore khi tranh chấp Mutex: nếu chiếm được counting semaphore nhưng
+      không chiếm được mutex trong chế độ non-blocking/timeout, hàm sẽ tự động giải phóng (release)
+      lại semaphore đó để tránh thất thoát tài nguyên (Semaphore Leak).
     - Cung cấp hàm `get_state()` trả về snapshot tức thời của bộ đệm và biến đồng bộ.
+    - Cung cấp hàm `verify_invariants()` kiểm chứng tính bất biến toán học của hệ thống.
     """
 
     def __init__(self, capacity: int) -> None:
@@ -97,6 +101,24 @@ class SharedMemory(IIPCMechanism):
         """Kiểm tra buffer có đang đầy hay không."""
         return self._count >= self._capacity
 
+    def _extract_error_and_delay(self, item: Any) -> tuple[str, float]:
+        """Trích xuất an toàn cấu hình mô phỏng lỗi (DELAY, CHECKSUM) từ item."""
+        sim_error = "NONE"
+        delay_sec = 0.0
+
+        if isinstance(item, dict):
+            sim_error = str(item.get("simulate_error", "NONE")).upper()
+            raw_delay = item.get("delay_ms", 0)
+            if isinstance(raw_delay, (int, float)) and raw_delay > 0:
+                delay_sec = raw_delay / 1000.0
+        elif hasattr(item, "simulate_error"):
+            sim_error = str(getattr(item, "simulate_error", "NONE")).upper()
+            raw_delay = getattr(item, "delay_ms", 0)
+            if isinstance(raw_delay, (int, float)) and raw_delay > 0:
+                delay_sec = raw_delay / 1000.0
+
+        return sim_error, delay_sec
+
     def produce(
         self,
         item: Any,
@@ -105,16 +127,6 @@ class SharedMemory(IIPCMechanism):
         *,
         events: list[dict[str, Any]] | None = None,
     ) -> IPCResult:
-        packet = self._normalize_packet(item, process_id)
-        start_time = time.time()
-      if packet.simulate_error == "DELAY" or packet.delay_ms > 0:
-            if packet.delay_ms > 0:
-                time.sleep(packet.delay_ms / 1000.0)
-            else:
-                _injector.delay_range = (1.0, 3.0)
-                _injector.inject_delay()
-
-                
         """
         Đưa một item vào vùng nhớ chia sẻ (Producer Logic).
 
@@ -129,25 +141,28 @@ class SharedMemory(IIPCMechanism):
             item: Dữ liệu cần sản xuất/ghi vào buffer.
             process_id: Định danh tiến trình thực hiện ghi.
             timeout: Thời gian chờ tối đa (giây). 0.0 là non-blocking (GUI safe).
+            events: Danh sách tùy chọn để ghi lại các frame phục vụ GUI animation.
 
         Returns:
             IPCResult: Kết quả thao tác kèm trạng thái "SUCCESS" hoặc "BLOCKED".
         """
+        # Xử lý mô phỏng độ trễ (Fault Injection - DELAY) trước khi vào đoạn găng
+        sim_error, delay_sec = self._extract_error_and_delay(item)
+        if sim_error == "DELAY" or delay_sec > 0:
+            actual_delay = delay_sec if delay_sec > 0 else 0.05
+            time.sleep(actual_delay)
+
         # =====================================================================
         # GIAI ĐOẠN 1: WAIT(EMPTY) - Kiểm tra và chiếm dụng ô nhớ trống
         # =====================================================================
         is_blocking = (timeout is None) or (timeout > 0.0)
+        start_wait_time = time.time()
 
         if not is_blocking:
             # Chế độ Non-blocking (Dành cho GUI ticker/step simulation)
-            # Thử chiếm Semaphore empty không chờ: nếu empty == 0 -> buffer đầy
             acquired_empty = self._empty.acquire(blocking=False)
             if not acquired_empty:
                 log_trace("WAIT_EMPTY", f"Process: {process_id}")
-                
-                with self._state_lock:
-                    self._blocked_producers[process_id] = time.time()
-                # Ghi nhận process bị block vào danh sách theo dõi
                 with self._state_lock:
                     self._blocked_producers[process_id] = time.time()
 
@@ -165,8 +180,7 @@ class SharedMemory(IIPCMechanism):
             with self._state_lock:
                 self._blocked_producers[process_id] = time.time()
 
-            # Chờ Semaphore empty (có hoặc không có thời hạn)
-            wait_kwargs = {"blocking": True}
+            wait_kwargs: dict[str, Any] = {"blocking": True}
             if timeout is not None:
                 wait_kwargs["timeout"] = timeout
 
@@ -174,10 +188,6 @@ class SharedMemory(IIPCMechanism):
 
             if not acquired_empty:
                 log_trace("WAIT_EMPTY", f"Process: {process_id} (Timeout)")
-                
-                with self._state_lock:
-                    self._blocked_producers.pop(process_id, None)
-                # Hết thời gian timeout mà buffer vẫn đầy
                 with self._state_lock:
                     self._blocked_producers.pop(process_id, None)
 
@@ -197,21 +207,51 @@ class SharedMemory(IIPCMechanism):
         # =====================================================================
         # GIAI ĐOẠN 2: WAIT(MUTEX) - Vào Critical Section
         # =====================================================================
-        # KHÓA MUTEX: Bảo vệ thao tác ghi dữ liệu và dịch con trỏ
-        if not self._mutex.acquire(blocking=is_blocking):
+        mutex_acquired = False
+        if not is_blocking:
+            mutex_acquired = self._mutex.acquire(blocking=False)
+        elif timeout is None:
+            mutex_acquired = self._mutex.acquire(blocking=True)
+        else:
+            # Tính thời gian timeout còn lại cho Mutex sau khi đã chờ Semaphore
+            elapsed = time.time() - start_wait_time
+            remaining_timeout = max(0.0, timeout - elapsed)
+            mutex_acquired = self._mutex.acquire(timeout=remaining_timeout)
+
+        if not mutex_acquired:
+            # ROLLBACK BẮT BUỘC: Hoàn trả lại Semaphore empty đã chiếm để tránh rò rỉ (Leak)
             self._empty.release()
+            log_trace("MUTEX_BLOCKED", f"Process: {process_id}")
+            with self._state_lock:
+                self._blocked_producers[process_id] = time.time()
             return IPCResult(
-                status=IPCStatus.BLOCKED.value, success=False,
+                status=IPCStatus.BLOCKED.value,
+                data=None,
+                success=False,
                 detail=f"[{process_id}] bị BLOCKED tại Mutex.",
             )
+
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
 
             # --- BẮT ĐẦU CRITICAL SECTION ---
             slot_index = self._in_ptr
+            log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
             self._record_event(events, "LOCKED", slot_index, process_id)
-            self._buffer[slot_index] = item
+
+            # Mô phỏng Fault Injector: CHECKSUM nếu được cấu hình
+            stored_item = item
+            if sim_error == "CHECKSUM":
+                log_trace("FAULT_CHECKSUM", f"Process: {process_id}")
+                if isinstance(stored_item, dict):
+                    stored_item = dict(stored_item)
+                    stored_item["checksum"] = "ERR_CHECKSUM_FAILED"
+                    stored_item["is_corrupted"] = True
+
+            self._buffer[slot_index] = stored_item
+            log_trace("WRITE_SLOT", f"Slot: {slot_index}")
+
             self._in_ptr = (self._in_ptr + 1) % self._capacity
             self._count += 1
             self._step_counter += 1
@@ -224,20 +264,18 @@ class SharedMemory(IIPCMechanism):
             # =================================================================
             with self._state_lock:
                 self._mutex_holder = None
-            # MỞ KHÓA MUTEX
             self._mutex.release()
+            log_trace("LOCK_RELEASE", f"Process: {process_id}")
 
         # =====================================================================
         # GIAI ĐOẠN 4: SIGNAL(FULL) - Báo hiệu có dữ liệu cho Consumer
         # =====================================================================
-        # Tăng giá trị Semaphore full lên 1, đánh thức Consumer nếu đang ngủ
         self._full.release()
+        log_trace("SIGNAL_FULL", f"Count: {self._count}")
 
-        # Nếu trước đó có consumer nào bị đánh dấu blocked trong chế độ non-blocking,
-        # dọn dẹp vì giờ buffer đã có dữ liệu
+        # Dọn dẹp consumer blocked nếu buffer đã có dữ liệu
         with self._state_lock:
             if self._blocked_consumers and self._count > 0:
-                # Giải phóng consumer đang chờ lâu nhất
                 oldest_consumer = next(iter(self._blocked_consumers.keys()))
                 self._blocked_consumers.pop(oldest_consumer, None)
 
@@ -271,6 +309,7 @@ class SharedMemory(IIPCMechanism):
         Args:
             process_id: Định danh tiến trình thực hiện đọc.
             timeout: Thời gian chờ tối đa (giây). 0.0 là non-blocking (GUI safe).
+            events: Danh sách tùy chọn để ghi lại các frame phục vụ GUI animation.
 
         Returns:
             IPCResult: Kết quả thao tác chứa item hoặc trạng thái "BLOCKED".
@@ -279,13 +318,13 @@ class SharedMemory(IIPCMechanism):
         # GIAI ĐOẠN 1: WAIT(FULL) - Kiểm tra và chiếm dụng ô nhớ có dữ liệu
         # =====================================================================
         is_blocking = (timeout is None) or (timeout > 0.0)
+        start_wait_time = time.time()
 
         if not is_blocking:
             # Chế độ Non-blocking (Dành cho GUI ticker/step simulation)
-            # Thử chiếm Semaphore full không chờ: nếu full == 0 -> buffer rỗng
             acquired_full = self._full.acquire(blocking=False)
             if not acquired_full:
-                # Ghi nhận process bị block vào danh sách theo dõi
+                log_trace("WAIT_FULL", f"Process: {process_id}")
                 with self._state_lock:
                     self._blocked_consumers[process_id] = time.time()
 
@@ -303,14 +342,14 @@ class SharedMemory(IIPCMechanism):
             with self._state_lock:
                 self._blocked_consumers[process_id] = time.time()
 
-            wait_kwargs = {"blocking": True}
+            wait_kwargs: dict[str, Any] = {"blocking": True}
             if timeout is not None:
                 wait_kwargs["timeout"] = timeout
 
             acquired_full = self._full.acquire(**wait_kwargs)
 
             if not acquired_full:
-                # Hết thời gian timeout mà buffer vẫn rỗng
+                log_trace("WAIT_FULL", f"Process: {process_id} (Timeout)")
                 with self._state_lock:
                     self._blocked_consumers.pop(process_id, None)
 
@@ -330,23 +369,42 @@ class SharedMemory(IIPCMechanism):
         # =====================================================================
         # GIAI ĐOẠN 2: WAIT(MUTEX) - Vào Critical Section
         # =====================================================================
-        # KHÓA MUTEX: Bảo vệ thao tác đọc dữ liệu và cập nhật con trỏ
-        if not self._mutex.acquire(blocking=is_blocking):
+        mutex_acquired = False
+        if not is_blocking:
+            mutex_acquired = self._mutex.acquire(blocking=False)
+        elif timeout is None:
+            mutex_acquired = self._mutex.acquire(blocking=True)
+        else:
+            elapsed = time.time() - start_wait_time
+            remaining_timeout = max(0.0, timeout - elapsed)
+            mutex_acquired = self._mutex.acquire(timeout=remaining_timeout)
+
+        if not mutex_acquired:
+            # ROLLBACK BẮT BUỘC: Hoàn trả lại Semaphore full đã chiếm
             self._full.release()
+            log_trace("MUTEX_BLOCKED", f"Process: {process_id}")
+            with self._state_lock:
+                self._blocked_consumers[process_id] = time.time()
             return IPCResult(
-                status=IPCStatus.BLOCKED.value, success=False,
+                status=IPCStatus.BLOCKED.value,
+                data=None,
+                success=False,
                 detail=f"[{process_id}] bị BLOCKED tại Mutex.",
             )
+
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
 
             # --- BẮT ĐẦU CRITICAL SECTION ---
             slot_index = self._out_ptr
+            log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
             self._record_event(events, "LOCKED", slot_index, process_id)
             self._record_event(events, "READING", slot_index, process_id)
+
             item = self._buffer[slot_index]
             log_trace("READ_SLOT", f"Slot: {slot_index}")
+
             self._buffer[slot_index] = None  # Xóa sạch ô nhớ sau khi đọc (Clear slot)
             self._out_ptr = (self._out_ptr + 1) % self._capacity
             self._count -= 1
@@ -359,27 +417,21 @@ class SharedMemory(IIPCMechanism):
             # =================================================================
             with self._state_lock:
                 self._mutex_holder = None
-            # MỞ KHÓA MUTEX
             self._mutex.release()
+            log_trace("LOCK_RELEASE", f"Process: {process_id}")
 
         # =====================================================================
         # GIAI ĐOẠN 4: SIGNAL(EMPTY) - Báo hiệu có thêm ô trống cho Producer
         # =====================================================================
-        # Tăng giá trị Semaphore empty lên 1, đánh thức Producer nếu đang chờ
         self._empty.release()
+        log_trace("SIGNAL_EMPTY", f"Count: {self._count}")
 
-        # Nếu trước đó có producer bị đánh dấu blocked trong non-blocking mode,
-        # dọn dẹp vì giờ buffer đã có chỗ trống
+        # Dọn dẹp producer blocked nếu buffer đã có chỗ trống
         with self._state_lock:
             if self._blocked_producers and self._count < self._capacity:
                 oldest_producer = next(iter(self._blocked_producers.keys()))
                 self._blocked_producers.pop(oldest_producer, None)
 
-if packet.simulate_error == "CHECKSUM":
-                packet.message = _injector.inject_checksum(packet.message)
-
-            # 2. Đưa gói tin vào hàng đợi
-            if self._is_priority:
         return IPCResult(
             status=IPCStatus.SUCCESS.value,
             data=item,
@@ -390,12 +442,14 @@ if packet.simulate_error == "CHECKSUM":
             ),
         )
 
-    def _record_event(self, events, phase, slot_index, process_id):
-        """Thu thập snapshot trong thao tác, không gọi GUI hoặc chờ animation.
-
-        Chỉ dùng danh sách riêng cho từng lời gọi. Caller không được thay đổi
-        payload trong khi đang phát lại sự kiện.
-        """
+    def _record_event(
+        self,
+        events: list[dict[str, Any]] | None,
+        phase: str,
+        slot_index: int,
+        process_id: str,
+    ) -> None:
+        """Thu thập snapshot trạng thái trong thao tác để phục vụ GUI frame animation."""
         if events is not None:
             events.append({
                 "phase": phase,
@@ -409,10 +463,12 @@ if packet.simulate_error == "CHECKSUM":
         Lấy snapshot trạng thái toàn diện của vùng nhớ chung để GUI vẽ Canvas/Graphics.
 
         Đảm bảo Thread-safe khi lấy dữ liệu mà không làm gián đoạn các luồng khác.
+        Tạo bản sao độc lập của mảng đệm buffer để việc chỉnh sửa sau đó không làm ảnh hưởng
+        đến các frame snapshot đã lưu trong lịch sử.
 
         Returns:
             dict bao gồm:
-                - "buffer": Bản sao (shallow copy) của mảng dữ liệu Circular Buffer.
+                - "buffer": Bản sao sâu/nông an toàn của mảng dữ liệu Circular Buffer.
                 - "in_ptr": Vị trí con trỏ ghi in_ptr.
                 - "out_ptr": Vị trí con trỏ đọc out_ptr.
                 - "mutex": Giá trị Mutex (1: Unlocked/Sẵn sàng, 0: Locked/Đang bị chiếm).
@@ -425,18 +481,19 @@ if packet.simulate_error == "CHECKSUM":
                 - "step": Số thứ tự thao tác tích lũy (phục vụ Trace log).
         """
         with self._state_lock:
-            # Danh sách tất cả process đang bị kẹt tại Semaphore empty hoặc full
             blocked_list = list(self._blocked_producers.keys()) + list(self._blocked_consumers.keys())
-
-            # Chuẩn hóa giá trị Mutex theo toán học OS: 1 là Free, 0 là Busy
             mutex_val = 0 if self._mutex.locked() else 1
-
-            # Giá trị Counting Semaphores bất biến theo số lượng phần tử
             empty_val = self._capacity - self._count
             full_val = self._count
 
+            # Tạo bản sao shallow của buffer (nếu phần tử là dict thì copy dict để an toàn)
+            buffer_copy = [
+                dict(elem) if isinstance(elem, dict) else elem
+                for elem in self._buffer
+            ]
+
             return {
-                "buffer": list(self._buffer),
+                "buffer": buffer_copy,
                 "in_ptr": self._in_ptr,
                 "out_ptr": self._out_ptr,
                 "mutex": mutex_val,
@@ -449,12 +506,35 @@ if packet.simulate_error == "CHECKSUM":
                 "step": self._step_counter,
             }
 
+    def verify_invariants(self) -> tuple[bool, str]:
+        """
+        Kiểm chứng tính đúng đắn toán học (System Invariants) của vùng nhớ chia sẻ.
+
+        Returns:
+            (True, "OK") nếu mọi bất biến đều thỏa mãn, ngược lại trả về (False, mô_tả_lỗi).
+        """
+        with self._state_lock:
+            if not (0 <= self._count <= self._capacity):
+                return False, f"Vi phạm bất biến count: {self._count} ngoài [0, {self._capacity}]"
+            if not (0 <= self._in_ptr < self._capacity):
+                return False, f"Vi phạm bất biến in_ptr: {self._in_ptr} ngoài [0, {self._capacity - 1}]"
+            if not (0 <= self._out_ptr < self._capacity):
+                return False, f"Vi phạm bất biến out_ptr: {self._out_ptr} ngoài [0, {self._capacity - 1}]"
+
+            actual_occupied = sum(1 for slot in self._buffer if slot is not None)
+            if actual_occupied != self._count:
+                return (
+                    False,
+                    f"Số ô chứa dữ liệu thực tế ({actual_occupied}) không khớp self._count ({self._count})",
+                )
+
+            return True, "Hệ thống bảo toàn tuyệt đối mọi bất biến đồng bộ."
+
     def reset(self) -> None:
         """
         Thiết lập lại toàn bộ trạng thái về ban đầu (Dùng cho nút Reset trên GUI hoặc Re-run test).
         """
         with self._state_lock:
-            # Nếu mutex đang bị lock, giải phóng
             if self._mutex.locked():
                 try:
                     self._mutex.release()

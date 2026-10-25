@@ -18,7 +18,6 @@ from typing import Any, Optional
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 from src.core import log_trace
-from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 
 @dataclass
 class MessagePacket:

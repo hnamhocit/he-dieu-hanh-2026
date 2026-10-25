@@ -1,5 +1,11 @@
-import time
 import os
+import sys
+import time
+import unittest
+
+# Đảm bảo đường dẫn import hoạt động khi chạy trực tiếp file
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.core.shared_memory import SharedMemory
 from src.utils.csv_parser import SimulationStep
 
@@ -106,6 +112,12 @@ def chay_kiem_thu_loi_bien():
         ghi_file_log_bao_cao("TC-PRI-01", "Trung Priority = 5", "Thu tu bi sai vi tri", "FAILED")
 
     print("=== TEST XONG, NHO CHECK FILE CSV ===")
+
+
+class TestBoundaryCases(unittest.TestCase):
+    def test_run_boundary_suite(self):
+        chay_kiem_thu_loi_bien()
+
 
 if __name__ == "__main__":
     chay_kiem_thu_loi_bien()

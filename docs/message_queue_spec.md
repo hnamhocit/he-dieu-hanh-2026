@@ -1,58 +1,83 @@
-# TÀI LIỆU ĐẶC TẢ KỸ THUẬT: MODULE MESSAGE QUEUE (IPC)
+# ĐẶC TẢ KỸ THUẬT: MODULE MESSAGE QUEUE (IPC)
 
-> **Mã nhiệm vụ Jira:** `HDH-22` (Hiện thực luồng lõi Message Queue)
-> **Phụ thuộc:** Tuân thủ Interface `IIPCMechanism` tại `src/core/ipc_interface.py`
-
----
-
-## 1. Tổng quan Kiến trúc
-`MessageQueue` hiện thực cơ chế truyền thông điệp gián tiếp. Khác với luồng dữ liệu thô của Pipe hay vùng nhớ của Shared Memory, Message Queue lưu trữ dữ liệu dưới dạng các **gói tin độc lập (Packets)** có cấu trúc. 
-
-Đặc tính cốt lõi của module này trong đồ án:
-- Hỗ trợ **Độ ưu tiên (Priority)**: Gói tin có mức độ ưu tiên cao sẽ được đẩy lên đầu hàng đợi để xử lý trước (bất chấp thứ tự gửi).
-- Đảm bảo **Thread-safe**: An toàn tuyệt đối khi có nhiều Producer (tiến trình gửi) và Consumer (tiến trình nhận) truy cập đồng thời.
+> **Mã nhiệm vụ Jira:** `HDH-14` (Cơ chế hàng đợi FIFO/Priority & Đồng bộ), `HDH-15` (Khai báo module), `HDH-22` & `HDH-27` (Hiện thực lõi), `HDH-28` (Blocking/Non-blocking)  
+> **Cơ chế IPC:** Hàng đợi thông điệp (Message Queue)  
+> **Mô hình đồng bộ:** Monitor Pattern (Mutex Lock + Condition Variables `not_full`, `not_empty`)  
+> **Phụ thuộc:** Tuân thủ Interface `IIPCMechanism` tại `src/core/ipc_interface.py`  
 
 ---
 
-## 2. Cấu trúc dữ liệu trong RAM (Data Structures)
+## 1. TỔNG QUAN KIẾN TRÚC
 
-### 2.1. Lớp `MessagePacket` (Gói tin)
-Đối tượng lưu trữ trong bộ nhớ, được Parser khởi tạo từ việc đọc file `input/*.csv` (Tham khảo Mục 6.1 README).
+`MessageQueue` hiện thực cơ chế truyền thông điệp gián tiếp. Khác với vùng nhớ chia sẻ (Shared Memory) nơi các tiến trình trực tiếp truy cập vào ô nhớ chung, Message Queue lưu trữ dữ liệu dưới dạng các **gói tin độc lập (MessagePacket)** có cấu trúc, được điều phối bởi hệ điều hành hoặc module lõi quản lý hàng đợi.
 
-- `id` (int): Định danh gói tin.
-- `priority` (int): Mức độ ưu tiên (số càng lớn, ưu tiên càng cao. Mặc định: 0).
-- `sender` (str): Tiến trình gửi.
-- `receiver` (str): Tiến trình nhận đích.
-- `message` (str): Dữ liệu truyền tải.
-- `timestamp` (float): Thời điểm gói tin được sinh ra (dùng để giải quyết tranh chấp nếu 2 gói tin có cùng priority).
-
-### 2.2. Lớp `MessageQueueCore` (Hàng đợi lõi)
-Sử dụng cấu trúc **Priority Queue** (Gợi ý: Dùng module `queue.PriorityQueue` hoặc `heapq` của Python) với giới hạn kích thước (`capacity`).
+### Đặc tính cốt lõi:
+- **Cơ chế sắp xếp hàng đợi (Queue Policy):**
+  - **FIFO (First-In, First-Out):** Mặc định xử lý các gói tin theo đúng trình tự thời gian gửi đến, đảm bảo tính công bằng và minh bạch giữa các tiến trình.
+  - **Priority Queue:** Khi bật cờ `is_priority=True`, các gói tin có độ ưu tiên cao hơn (`priority` lớn hơn) sẽ được đưa lên đầu hàng đợi để tiêu thụ trước. Nếu hai gói tin có cùng `priority`, gói tin nào đến trước (dựa trên `timestamp`) sẽ được lấy ra trước.
+- **An toàn đa luồng (Thread-safe Monitor Pattern):** Sử dụng `threading.Lock` kết hợp cùng hai `threading.Condition` (`not_full`, `not_empty`) để loại trừ tương hỗ và đánh thức tiến trình.
 
 ---
 
-## 3. Cơ chế Đồng bộ & Thuật toán (Synchronization)
+## 2. CẤU TRÚC DỮ LIỆU TRONG BỘ NHỚ (DATA STRUCTURES)
 
-Hệ thống sử dụng các nguyên thủy đồng bộ (Synchronization Primitives) sau để quản lý hàng đợi:
+### 2.1. Lớp `MessagePacket` (Gói tin chuẩn HDH-13)
+Mỗi thông điệp được chuẩn hóa thành một đối tượng `MessagePacket`:
 
-1. **`Mutex` (Lock):** Đảm bảo tại một thời điểm chỉ có ĐÚNG MỘT tiến trình được phép thao tác (Push/Pop) vào hàng đợi.
-2. **`Semaphore_Empty`:** Đếm số slot trống trong hàng đợi. Khởi tạo = `capacity`.
-   - Lệnh `SEND` sẽ gọi `wait(Empty)`. Nếu hàng đợi đầy (Empty = 0), tiến trình gửi bị `BLOCKED` hoặc văng lỗi `BUFFER_OVERFLOW` (tùy cấu hình).
-3. **`Semaphore_Full`:** Đếm số gói tin đang có trong hàng đợi. Khởi tạo = 0.
-   - Lệnh `RECEIVE` sẽ gọi `wait(Full)`. Nếu hàng đợi rỗng (Full = 0), tiến trình nhận bị `BLOCKED` (chờ) cho đến khi có dữ liệu.
+| Thuộc tính | Kiểu dữ liệu | Mặc định | Ý nghĩa kỹ thuật |
+| :--- | :--- | :---: | :--- |
+| `id` | `int` | *Bắt buộc* | Định danh duy nhất của gói tin (> 0). |
+| `sender` | `str` | *Bắt buộc* | Định danh tiến trình gửi (Producer). |
+| `receiver` | `str` | *Bắt buộc* | Định danh tiến trình nhận đích (Consumer). |
+| `message` | `str` | `""` | Nội dung payload của thông điệp. |
+| `delay_ms` | `int` | `0` | Độ trễ giả lập trước khi gửi (ms). |
+| `priority` | `int` | `0` | Mức độ ưu tiên (0 đến 5; số lớn hơn = ưu tiên cao hơn). |
+| `simulate_error` | `str` | `"NONE"` | Loại lỗi giả lập (`NONE`, `DELAY`, `CHECKSUM`). |
+| `mechanism` | `str` | `"MESSAGE_QUEUE"` | Định danh cơ chế truyền tin. |
+| `timestamp` | `float` | `time.time()` | Mốc thời gian gói tin được khởi tạo. |
+| `payload_size_bytes` | `int` | Tự động | Kích thước chuỗi payload tính theo bytes (`utf-8`). |
+
+### 2.2. Lớp `MessageQueue`
+Kế thừa từ `IIPCMechanism`, quản lý danh sách các `MessagePacket` với giới hạn dung lượng `capacity`:
+- `_queue: list[MessagePacket]`: Danh sách lưu trữ các gói tin trong hàng đợi.
+- `_is_priority: bool`: Cờ cấu hình chế độ hàng đợi ưu tiên.
+- `_mutex = threading.Lock()`: Khóa nhị phân bảo vệ Critical Section của hàng đợi.
+- `_not_full = threading.Condition(_mutex)`: Biến điều kiện báo hiệu hàng đợi có chỗ trống (được notify bởi Consumer).
+- `_not_empty = threading.Condition(_mutex)`: Biến điều kiện báo hiệu hàng đợi có dữ liệu (được notify bởi Producer).
 
 ---
 
-## 4. Quy ước Ghi Log (Trace Logging)
+## 3. CƠ CHẾ ĐỒNG BỘ HÓA (MONITOR SYNCHRONIZATION)
 
-Module phải trả về đối tượng `IPCResult` với các trường dữ liệu tuân thủ nghiêm ngặt **Mục 6.2 của README.md**. Không tự ý chế ra format log riêng.
+### 3.1. Thao tác Produce (`SEND` / Enqueue)
+1. Kiểm tra dung lượng hàng đợi: Nếu `len(_queue) >= capacity`:
+   - Nếu `timeout == 0.0` (Non-blocking): Lập tức trả về `IPCResult(status="BLOCKED", success=False)` mà không làm treo luồng.
+   - Nếu `timeout > 0`: Gọi `_not_full.wait(timeout)` chờ cho tới khi có chỗ trống hoặc hết giờ.
+   - Nếu `timeout is None`: Gọi `_not_full.wait()` chờ vô hạn.
+2. Đưa gói tin vào `_queue`:
+   - Nếu `is_priority`: Dùng `heapq` hoặc chèn theo thứ tự `priority` giảm dần và `timestamp` tăng dần.
+   - Nếu FIFO: Nạp vào cuối danh sách (`_queue.append(packet)`).
+3. Đánh thức Consumer đang ngủ: Gọi `_not_empty.notify()`.
+4. Ghi vết vi sự kiện qua `log_trace("ENQUEUE", f"Packet_ID: {packet.id}")`.
 
-**Hướng dẫn map dữ liệu cho Message Queue:**
-- Cột `action`: Chỉ sử dụng `SEND`, `RECEIVE`, `LOCK`, `UNLOCK`, `WAIT`.
-- Cột `buffer_state`: Xuất danh sách ID hoặc tóm tắt các gói tin đang nằm trong hàng đợi. 
-  * Ví dụ: `"[ID:5(P2), ID:1(P0)]"` (thể hiện rõ gói tin ưu tiên 2 đang xếp trước ưu tiên 0).
-- Cột `sync_state`: Ghi rõ trạng thái Semaphore. 
-  * Ví dụ: `"(Mutex: 1, Empty: 8, Full: 2)"`.
-- Cột `detail`: Ghi rõ lý do thành công hoặc thất bại. 
-  * Ví dụ thành công: `"Enqueued with priority 2"`. 
-  * Ví dụ thất bại: `"Blocked: Queue is full"`.
+### 3.2. Thao tác Consume (`RECEIVE` / Dequeue)
+1. Kiểm tra dữ liệu hàng đợi: Nếu `len(_queue) == 0`:
+   - Nếu `timeout == 0.0` (Non-blocking): Lập tức trả về `IPCResult(status="BLOCKED", success=False)`.
+   - Nếu `timeout > 0`: Gọi `_not_empty.wait(timeout)` chờ có tin nhắn mới hoặc hết giờ.
+   - Nếu `timeout is None`: Gọi `_not_empty.wait()` chờ vô hạn.
+2. Lấy gói tin ra khỏi `_queue`:
+   - Rút phần tử đầu danh sách (`_queue.pop(0)`).
+3. Đánh thức Producer đang ngủ: Gọi `_not_full.notify()`.
+4. Ghi vết vi sự kiện qua `log_trace("DEQUEUE", f"Packet_ID: {packet.id}")`.
+
+---
+
+## 4. QUY ƯỚC GHI VẾT TRACE VÀ SNAPSHOT GUI
+
+Module cung cấp hàm `get_state()` trả về snapshot phục vụ GUI và kiểm chứng Oracle:
+- `buffer`: Danh sách ID hoặc dictionary tóm tắt các gói tin đang xếp hàng (ví dụ: `[ID:5(P2), ID:1(P0)]`).
+- `count`: Số lượng gói tin hiện có trong hàng đợi.
+- `capacity`: Sức chứa tối đa của hàng đợi.
+- `is_full`: Cờ boolean kiểm tra hàng đợi đã đầy hay chưa.
+- `is_empty`: Cờ boolean kiểm tra hàng đợi có rỗng hay không.
+- `blocked_processes`: Danh sách định danh các tiến trình đang bị chặn tại `_not_full` hoặc `_not_empty`.

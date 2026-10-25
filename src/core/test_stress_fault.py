@@ -9,7 +9,7 @@ NUM_PRODUCERS = 5
 NUM_CONSUMERS = 5
 MESSAGES_PER_PRODUCER = 100  # Tổng cộng 500 gói tin được xử lý liên tục
 QUEUE_CAPACITY = 20
-LOG_FILE_PATH = "logs/trace_ipc.log"  # Thay đổi đường dẫn log thực tế của hệ thống bạn nếu cần
+LOG_FILE_PATH = "data/output/trace_execution.csv"  # Đường dẫn log trace thực tế của hệ thống
 
 def simulated_producer(queue: MessageQueue, producer_id: int):
     """Tiến trình Producer tạo tải và chèn lỗi ngẫu nhiên."""
@@ -57,15 +57,16 @@ def verify_timestamp_accuracy():
 
     timestamps = []
     with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
+        header = f.readline()
         for line in f:
-            # Giả định log của bạn lưu dạng JSON hoặc chuỗi chứa epoch timestamp / ISO-8601
-            # Thử trích xuất timestamp từ dòng log (bạn hãy chỉnh lại regex/split phù hợp log thực tế)
+            clean_line = line.strip()
+            if not clean_line:
+                continue
+            parts = clean_line.split(",")
             try:
-                if "timestamp" in line:
-                    # Ví dụ xử lý chuỗi mẫu đơn giản: 'timestamp': 1735687200.123
-                    parts = line.split('"timestamp":')[-1].split(",")[0].strip()
-                    timestamps.append(float(parts))
-            except Exception:
+                ts = int(parts[0])
+                timestamps.append(ts)
+            except (ValueError, IndexError):
                 continue
 
     if not timestamps:
@@ -75,11 +76,11 @@ def verify_timestamp_accuracy():
     # Kiểm tra tính đơn điệu (Monotonicity): Nhật ký sự kiện phải theo đúng trình tự thời gian
     is_monotonic = all(timestamps[i] <= timestamps[i+1] for i in range(len(timestamps)-1))
     
-    # Kiểm tra độ trễ lệch pha (Hệ thống chạy realtime không được ghi log trễ quá 1 giây so với thực tế)
-    max_gap = max([timestamps[i+1] - timestamps[i] for i in range(len(timestamps)-1)]) if len(timestamps) > 1 else 0
+    # Khoảng cách lớn nhất giữa 2 log liên tiếp (tính bằng giây)
+    max_gap_sec = max([timestamps[i+1] - timestamps[i] for i in range(len(timestamps)-1)]) / 1e9 if len(timestamps) > 1 else 0
 
     assert is_monotonic, "❌ LỖI: Timestamp trong log bị đảo lộn, không theo trình tự thời gian!"
-    print(f"✅ Đạt: Timestamp log đảm bảo thứ tự đơn điệu tăng dần. Khoảng giãn cách lớn nhất giữa 2 log liên tiếp: {max_gap:.4f} giây.")
+    print(f"✅ Đạt: Timestamp log đảm bảo thứ tự đơn điệu tăng dần ({len(timestamps)} mẫu). Khoảng giãn cách lớn nhất giữa 2 log liên tiếp: {max_gap_sec:.6f} giây.")
 
 
 def verify_log_integrity():
@@ -92,16 +93,15 @@ def verify_log_integrity():
     total_lines = 0
     
     with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
+        header = f.readline()
         for line in f:
             total_lines += 1
-            # Kiểm tra xem dòng log có bị ghi đè dính chữ, đứt đoạn nửa chừng hay không (Malformed Log)
-            # Ví dụ: Log chuẩn kết thúc bằng dấu đóng ngoặc } hoặc xuống dòng sạch sẽ.
             clean_line = line.strip()
             if not clean_line:
                 continue
-            
-            # Nếu dùng JSON log: dòng nào không parse được JSON là bị vỡ do xung đột luồng
-            if clean_line.startswith("{") and not clean_line.endswith("}"):
+            parts = clean_line.split(",")
+            # Mỗi dòng CSV phải có ít nhất 2 phần tử (timestamp_ns, event_name)
+            if len(parts) < 2 or not parts[0].isdigit():
                 corrupted_lines += 1
 
     assert corrupted_lines == 0, f"❌ LỖI: File log bị vỡ cấu trúc! Phát hiện {corrupted_lines}/{total_lines} dòng bị hỏng dữ liệu."

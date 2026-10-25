@@ -8,6 +8,8 @@ Python version: 3.10+
 
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 from src.core.shared_memory import SharedMemory
 from src.core.ipc_interface import IPCStatus
@@ -164,6 +166,97 @@ class TestSharedMemory(unittest.TestCase):
         finally:
             self.shm._mutex.release()
         self.assertEqual(self.shm.consume().data, "A")
+
+    def test_system_invariants_verification(self) -> None:
+        """Kiểm chứng tính bất biến toán học của SharedMemory (HDH-86)."""
+        ok, msg = self.shm.verify_invariants()
+        self.assertTrue(ok, msg)
+
+        self.shm.produce("Val_1")
+        self.shm.produce("Val_2")
+        ok, msg = self.shm.verify_invariants()
+        self.assertTrue(ok, msg)
+
+        self.shm.consume()
+        ok, msg = self.shm.verify_invariants()
+        self.assertTrue(ok, msg)
+
+    def test_timeout_blocking_produce_and_consume(self) -> None:
+        """Kiểm tra cơ chế timeout khi buffer đầy hoặc rỗng."""
+        # Test consume timeout trên buffer rỗng
+        res_cons = self.shm.consume("C1", timeout=0.05)
+        self.assertFalse(res_cons.success)
+        self.assertEqual(res_cons.status, IPCStatus.BLOCKED.value)
+
+        # Lắp đầy buffer
+        for i in range(self.capacity):
+            self.shm.produce(f"Data_{i}")
+
+        # Test produce timeout trên buffer đầy
+        res_prod = self.shm.produce("Data_Overflow", "P1", timeout=0.05)
+        self.assertFalse(res_prod.success)
+        self.assertEqual(res_prod.status, IPCStatus.BLOCKED.value)
+
+    def test_fault_injection_delay_and_checksum(self) -> None:
+        """Kiểm tra xử lý mô phỏng lỗi DELAY và CHECKSUM mà không làm crash core."""
+        # 1. DELAY
+        item_delay = {"id": 1, "simulate_error": "DELAY", "delay_ms": 10, "message": "DelayTest"}
+        res = self.shm.produce(item_delay, "P_Delay")
+        self.assertTrue(res.success)
+        self.assertEqual(self.shm.count, 1)
+
+        # 2. CHECKSUM
+        item_chk = {"id": 2, "simulate_error": "CHECKSUM", "message": "Original"}
+        res2 = self.shm.produce(item_chk, "P_Chk")
+        self.assertTrue(res2.success)
+
+        # Consume ra và kiểm tra
+        consumed_1 = self.shm.consume("C1").data
+        self.assertEqual(consumed_1["id"], 1)
+
+        consumed_2 = self.shm.consume("C1").data
+        self.assertEqual(consumed_2["id"], 2)
+        self.assertEqual(consumed_2.get("checksum"), "ERR_CHECKSUM_FAILED")
+
+    def test_concurrent_multithreaded_producer_consumer(self) -> None:
+        """Kiểm tra an toàn đa luồng tải cao không bị Race Condition hay Deadlock (HDH-86)."""
+        import concurrent.futures
+        shm = SharedMemory(capacity=5)
+        num_items_per_worker = 30
+        num_workers = 3
+        total_items = num_items_per_worker * num_workers
+        consumed_items = []
+        lock_consumed = threading.Lock()
+
+        def producer_worker(p_id: int):
+            for i in range(num_items_per_worker):
+                item = f"P{p_id}_{i}"
+                while True:
+                    res = shm.produce(item, process_id=f"P_{p_id}", timeout=0.01)
+                    if res.success:
+                        break
+                    time.sleep(0.001)
+
+        def consumer_worker(c_id: int):
+            for _ in range(num_items_per_worker):
+                while True:
+                    res = shm.consume(process_id=f"C_{c_id}", timeout=0.01)
+                    if res.success:
+                        with lock_consumed:
+                            consumed_items.append(res.data)
+                        break
+                    time.sleep(0.001)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers * 2) as pool:
+            p_futs = [pool.submit(producer_worker, i) for i in range(num_workers)]
+            c_futs = [pool.submit(consumer_worker, i) for i in range(num_workers)]
+            concurrent.futures.wait(p_futs + c_futs)
+
+        self.assertEqual(len(consumed_items), total_items)
+        ok, msg = shm.verify_invariants()
+        self.assertTrue(ok, msg)
+        self.assertEqual(shm.count, 0)
+        self.assertTrue(shm.is_empty)
 
 
 if __name__ == "__main__":
