@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
-
+from src.core import log_trace
+from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 
 @dataclass
 class MessagePacket:
@@ -142,6 +143,7 @@ class MessageQueue(IIPCMechanism):
         with self._not_full:
             # 1. Kiểm tra hàng đợi đầy
             while len(self._queue) >= self._capacity:
+                log_trace("WAIT_EMPTY", f"Process: {process_id}")
                 if timeout == 0.0:
                     return IPCResult(
                         status=IPCStatus.BLOCKED.value,
@@ -185,7 +187,7 @@ class MessageQueue(IIPCMechanism):
 
             # Báo hiệu cho các Consumer đang chờ
             self._not_empty.notify()
-
+            log_trace("ENQUEUE", f"Packet_ID: {packet.id}")
             return IPCResult(
                 status=IPCStatus.SUCCESS.value,
                 data=packet,
@@ -213,6 +215,7 @@ class MessageQueue(IIPCMechanism):
         with self._not_empty:
             # 1. Kiểm tra hàng đợi rỗng
             while len(self._queue) == 0:
+                log_trace("WAIT_FULL", f"Process: {process_id}")
                 if timeout == 0.0:
                     return IPCResult(
                         status=IPCStatus.BLOCKED.value,
@@ -242,7 +245,7 @@ class MessageQueue(IIPCMechanism):
 
             # 2. Rút gói tin ra khỏi hàng đợi
             packet = self._queue.pop(0)
-
+            log_trace("DEQUEUE", f"Packet_ID: {packet.id}")
             # Báo hiệu cho các Producer đang chờ
             self._not_full.notify()
 

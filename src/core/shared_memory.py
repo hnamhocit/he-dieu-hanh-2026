@@ -13,10 +13,11 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any
+from src.core import log_trace 
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
-from src.core.fault_injector import FaultInjector
-_injector = FaultInjector(checksum_fail_rate=1.0, crash_rate=1.0)
+from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
+
 
 class SharedMemory(IIPCMechanism):
     """
@@ -140,6 +141,10 @@ class SharedMemory(IIPCMechanism):
             # Thử chiếm Semaphore empty không chờ: nếu empty == 0 -> buffer đầy
             acquired_empty = self._empty.acquire(blocking=False)
             if not acquired_empty:
+                log_trace("WAIT_EMPTY", f"Process: {process_id}")
+                
+                with self._state_lock:
+                    self._blocked_producers[process_id] = time.time()
                 # Ghi nhận process bị block vào danh sách theo dõi
                 with self._state_lock:
                     self._blocked_producers[process_id] = time.time()
@@ -166,6 +171,10 @@ class SharedMemory(IIPCMechanism):
             acquired_empty = self._empty.acquire(**wait_kwargs)
 
             if not acquired_empty:
+                log_trace("WAIT_EMPTY", f"Process: {process_id} (Timeout)")
+                
+                with self._state_lock:
+                    self._blocked_producers.pop(process_id, None)
                 # Hết thời gian timeout mà buffer vẫn đầy
                 with self._state_lock:
                     self._blocked_producers.pop(process_id, None)
@@ -188,6 +197,20 @@ class SharedMemory(IIPCMechanism):
         # =====================================================================
         # KHÓA MUTEX: Bảo vệ thao tác ghi dữ liệu và dịch con trỏ
         self._mutex.acquire()
+        log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
+        
+        try:
+            with self._state_lock:
+                self._mutex_holder = process_id
+
+            # --- BẮT ĐẦU CRITICAL SECTION ---
+            slot_index = self._in_ptr
+            self._buffer[slot_index] = item
+            log_trace("WRITE_SLOT", f"Slot: {slot_index}")
+            
+            self._in_ptr = (self._in_ptr + 1) % self._capacity
+            self._count += 1
+            self._step_counter += 1
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
@@ -312,6 +335,7 @@ class SharedMemory(IIPCMechanism):
         # =====================================================================
         # KHÓA MUTEX: Bảo vệ thao tác đọc dữ liệu và cập nhật con trỏ
         self._mutex.acquire()
+        log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
         try:
             with self._state_lock:
                 self._mutex_holder = process_id
@@ -319,6 +343,7 @@ class SharedMemory(IIPCMechanism):
             # --- BẮT ĐẦU CRITICAL SECTION ---
             slot_index = self._out_ptr
             item = self._buffer[slot_index]
+            log_trace("READ_SLOT", f"Slot: {slot_index}")
             self._buffer[slot_index] = None  # Xóa sạch ô nhớ sau khi đọc (Clear slot)
             self._out_ptr = (self._out_ptr + 1) % self._capacity
             self._count -= 1
