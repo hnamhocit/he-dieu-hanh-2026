@@ -15,7 +15,8 @@ import time
 from typing import Any
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
-
+from src.core.fault_injector import FaultInjector
+_injector = FaultInjector(checksum_fail_rate=1.0, crash_rate=1.0)
 
 class SharedMemory(IIPCMechanism):
     """
@@ -101,6 +102,16 @@ class SharedMemory(IIPCMechanism):
         process_id: str = "Producer",
         timeout: float | None = 0.0,
     ) -> IPCResult:
+        packet = self._normalize_packet(item, process_id)
+        start_time = time.time()
+      if packet.simulate_error == "DELAY" or packet.delay_ms > 0:
+            if packet.delay_ms > 0:
+                time.sleep(packet.delay_ms / 1000.0)
+            else:
+                _injector.delay_range = (1.0, 3.0)
+                _injector.inject_delay()
+
+                
         """
         Đưa một item vào vùng nhớ chia sẻ (Producer Logic).
 
@@ -336,6 +347,11 @@ class SharedMemory(IIPCMechanism):
                 oldest_producer = next(iter(self._blocked_producers.keys()))
                 self._blocked_producers.pop(oldest_producer, None)
 
+if packet.simulate_error == "CHECKSUM":
+                packet.message = _injector.inject_checksum(packet.message)
+
+            # 2. Đưa gói tin vào hàng đợi
+            if self._is_priority:
         return IPCResult(
             status=IPCStatus.SUCCESS.value,
             data=item,
