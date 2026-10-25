@@ -13,7 +13,9 @@ from __future__ import annotations
 import threading
 import time
 from typing import Any
+from src.core import log_trace 
 
+from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 
 
@@ -103,6 +105,16 @@ class SharedMemory(IIPCMechanism):
         *,
         events: list[dict[str, Any]] | None = None,
     ) -> IPCResult:
+        packet = self._normalize_packet(item, process_id)
+        start_time = time.time()
+      if packet.simulate_error == "DELAY" or packet.delay_ms > 0:
+            if packet.delay_ms > 0:
+                time.sleep(packet.delay_ms / 1000.0)
+            else:
+                _injector.delay_range = (1.0, 3.0)
+                _injector.inject_delay()
+
+                
         """
         Đưa một item vào vùng nhớ chia sẻ (Producer Logic).
 
@@ -131,6 +143,10 @@ class SharedMemory(IIPCMechanism):
             # Thử chiếm Semaphore empty không chờ: nếu empty == 0 -> buffer đầy
             acquired_empty = self._empty.acquire(blocking=False)
             if not acquired_empty:
+                log_trace("WAIT_EMPTY", f"Process: {process_id}")
+                
+                with self._state_lock:
+                    self._blocked_producers[process_id] = time.time()
                 # Ghi nhận process bị block vào danh sách theo dõi
                 with self._state_lock:
                     self._blocked_producers[process_id] = time.time()
@@ -157,6 +173,10 @@ class SharedMemory(IIPCMechanism):
             acquired_empty = self._empty.acquire(**wait_kwargs)
 
             if not acquired_empty:
+                log_trace("WAIT_EMPTY", f"Process: {process_id} (Timeout)")
+                
+                with self._state_lock:
+                    self._blocked_producers.pop(process_id, None)
                 # Hết thời gian timeout mà buffer vẫn đầy
                 with self._state_lock:
                     self._blocked_producers.pop(process_id, None)
@@ -326,6 +346,7 @@ class SharedMemory(IIPCMechanism):
             self._record_event(events, "LOCKED", slot_index, process_id)
             self._record_event(events, "READING", slot_index, process_id)
             item = self._buffer[slot_index]
+            log_trace("READ_SLOT", f"Slot: {slot_index}")
             self._buffer[slot_index] = None  # Xóa sạch ô nhớ sau khi đọc (Clear slot)
             self._out_ptr = (self._out_ptr + 1) % self._capacity
             self._count -= 1
@@ -354,6 +375,11 @@ class SharedMemory(IIPCMechanism):
                 oldest_producer = next(iter(self._blocked_producers.keys()))
                 self._blocked_producers.pop(oldest_producer, None)
 
+if packet.simulate_error == "CHECKSUM":
+                packet.message = _injector.inject_checksum(packet.message)
+
+            # 2. Đưa gói tin vào hàng đợi
+            if self._is_priority:
         return IPCResult(
             status=IPCStatus.SUCCESS.value,
             data=item,
