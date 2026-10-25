@@ -6,7 +6,7 @@ Cung cấp các cơ chế Inter-Process Communication chuẩn hóa kế thừa I
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 from src.core.shared_memory import SharedMemory
 from src.core.message_queue import MessageQueue, MessagePacket, MessageQueueCore
-
+from src.core.fault_injector import FaultInjector 
 __all__ = [
     "IIPCMechanism",
     "IPCResult",
