@@ -1,28 +1,30 @@
 """
 Module: message_queue.py
 Mô tả: Hiện thực cơ chế IPC Message Queue (Hàng đợi thông điệp).
-       Tuân thủ hoàn toàn Interface IIPCMechanism (src/core/ipc_interface.py).
-       Hỗ trợ cả cơ chế FIFO lẫn Priority Queue, an toàn đa luồng bằng Condition Variable (Monitor).
+       Kế thừa trực tiếp Interface IIPCMechanism (src/core/ipc_interface.py).
+       Hỗ trợ cả cơ chế FIFO lẫn Priority Queue, an toàn đa luồng bằng Monitor
+       (threading.Lock + hai Condition Variable `not_full` và `not_empty`).
        Cung cấp API non-blocking (timeout=0.0) cho GUI và blocking/timeout cho Worker.
-Tasks: HDH-14, HDH-15, HDH-27, HDH-28, HDH-29
+Tasks: HDH-14, HDH-15, HDH-27, HDH-28, HDH-29, HDH-88
 Python version: 3.10+
 """
 
 from __future__ import annotations
-
-import heapq
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
-from src.core import log_trace
+
 
 @dataclass
 class MessagePacket:
     """
     Cấu trúc khuôn mẫu của một gói tin (MessagePacket) theo đặc tả HDH-13.
+
+    Thuộc tính `sequence` (HDH-88) là số thứ tự tăng dần được gán tại thời điểm gói tin
+    vào hàng đợi, dùng để phân xử hòa khi nhiều gói tin có cùng mức `priority`.
     """
     id: int
     sender: str
@@ -33,6 +35,7 @@ class MessagePacket:
     simulate_error: str = "NONE"
     mechanism: str = "MESSAGE_QUEUE"
     timestamp: float = 0.0
+    sequence: int = 0
 
     def __post_init__(self) -> None:
         if self.timestamp == 0.0:
@@ -51,27 +54,37 @@ class MessagePacket:
             "simulate_error": self.simulate_error,
             "mechanism": self.mechanism,
             "timestamp": self.timestamp,
+            "sequence": self.sequence,
             "payload_size_bytes": getattr(self, "payload_size_bytes", len(self.message.encode("utf-8"))),
         }
 
     def __lt__(self, other: Any) -> bool:
-        """Hỗ trợ so sánh trong Priority Queue (độ ưu tiên cao hơn xếp trước, nếu bằng nhau so sánh timestamp)."""
+        """
+        Quan hệ thứ tự trong Priority Queue: gói tin nào "nhỏ hơn" sẽ được lấy ra trước.
+
+        Quy tắc (Tie-breaking policy):
+            1. `priority` lớn hơn thì xếp trước (số lớn = ưu tiên cao hơn).
+            2. Cùng `priority` thì `sequence` nhỏ hơn (vào hàng đợi trước) xếp trước (FIFO).
+        """
         if not isinstance(other, MessagePacket):
             return NotImplemented
-        if self.priority != other.priority:
-            return self.priority > other.priority  # Priority số lớn hơn = ưu tiên cao hơn
-        return self.timestamp < other.timestamp
+        return (-self.priority, self.sequence) < (-other.priority, other.sequence)
 
 
 class MessageQueue(IIPCMechanism):
     """
-    Hiện thực lõi hàng đợi tin nhắn (Message Queue Core) kế thừa IIPCMechanism.
+    Hiện thực lõi hàng đợi tin nhắn (Message Queue Core) kế thừa trực tiếp IIPCMechanism.
 
-    Nguyên lý đồng bộ (Theo lý thuyết Hệ điều hành - Monitor Pattern):
-    - `mutex`: Lock bảo vệ vùng Critical Section của hàng đợi tin nhắn.
-    - `not_full`: Condition Variable báo hiệu khi hàng đợi có chỗ trống (được notify bởi Consumer).
-    - `not_empty`: Condition Variable báo hiệu khi hàng đợi có tin nhắn mới (được notify bởi Producer).
-    - Hỗ trợ chế độ FIFO thuần túy hoặc Priority Queue theo tham số `is_priority`.
+    Nguyên lý đồng bộ (Monitor Pattern):
+    - `mutex`: threading.Lock bảo vệ vùng Critical Section của hàng đợi tin nhắn.
+    - `not_full`: Condition Variable báo hiệu khi hàng đợi có chỗ trống (Consumer notify).
+    - `not_empty`: Condition Variable báo hiệu khi hàng đợi có tin nhắn mới (Producer notify).
+    - Hai Condition Variable dùng chung `mutex`.
+
+    Chế độ hàng đợi:
+    - FIFO (mặc định): gói tin vào sau xếp cuối hàng đợi.
+    - Priority (`is_priority=True`): gói tin có `priority` cao hơn xếp trước; cùng `priority`
+      thì gói tin vào hàng đợi trước được lấy ra trước (tie-breaking FIFO, HDH-88).
     """
 
     def __init__(self, capacity: int, is_priority: bool = False) -> None:
@@ -83,8 +96,9 @@ class MessageQueue(IIPCMechanism):
             is_priority: True nếu kích hoạt chế độ hàng đợi ưu tiên (Priority Queue).
         """
         super().__init__(capacity)
-        self._is_priority = is_priority
+        self._is_priority: bool = is_priority
         self._queue: list[MessagePacket] = []
+        self._seq_counter: int = 0  # Bộ đếm sequence, chỉ thay đổi khi đang giữ mutex
 
         # Đồng bộ hóa bằng Monitor (Lock + Condition Variables)
         self._mutex = threading.Lock()
@@ -133,60 +147,63 @@ class MessageQueue(IIPCMechanism):
             process_id: Định danh tiến trình gửi (phục vụ trace log).
             timeout:
                 - 0.0: Non-blocking (cho GUI/step-by-step). Nếu đầy, trả về ngay "BLOCKED".
-                - > 0.0: Chờ tối đa `timeout` giây trước khi trả về "BLOCKED".
+                - > 0.0: Chờ tối đa `timeout` giây, hết hạn thì trả về "TIMEOUT".
                 - None: Blocking vô hạn (chờ cho tới khi có chỗ trống).
+
+        Returns:
+            IPCResult: Trạng thái SUCCESS (kèm gói tin đã gửi), BLOCKED hoặc TIMEOUT.
         """
         packet = self._normalize_packet(item, process_id)
         start_time = time.time()
 
         with self._not_full:
-            # 1. Kiểm tra hàng đợi đầy
-            while len(self._queue) >= self._capacity:
-                log_trace("WAIT_EMPTY", f"Process: {process_id}")
-                if timeout == 0.0:
-                    return IPCResult(
-                        status=IPCStatus.BLOCKED.value,
-                        success=False,
-                        detail=f"Hàng đợi tin nhắn đã đầy ({len(self._queue)}/{self._capacity}).",
-                    )
-                if timeout is not None:
-                    elapsed = time.time() - start_time
-                    remaining = timeout - elapsed
-                    if remaining <= 0:
+            try:
+                # 1. Chờ cho đến khi hàng đợi có chỗ trống
+                while len(self._queue) >= self._capacity:
+                    if timeout == 0.0:
                         return IPCResult(
-                            status=IPCStatus.TIMEOUT.value,
+                            status=IPCStatus.BLOCKED.value,
                             success=False,
-                            detail=f"Quá thời gian chờ ghi ({timeout}s) do hàng đợi đầy.",
+                            detail=f"Hàng đợi tin nhắn đã đầy ({len(self._queue)}/{self._capacity}).",
                         )
-                    with self._state_lock:
-                        self._blocked_producers[process_id] = start_time
-                    self._not_full.wait(timeout=remaining)
-                else:
-                    with self._state_lock:
-                        self._blocked_producers[process_id] = start_time
-                    self._not_full.wait()
+                    if timeout is not None:
+                        remaining = timeout - (time.time() - start_time)
+                        if remaining <= 0:
+                            return IPCResult(
+                                status=IPCStatus.TIMEOUT.value,
+                                success=False,
+                                detail=f"Quá thời gian chờ ghi ({timeout}s) do hàng đợi đầy.",
+                            )
+                        with self._state_lock:
+                            self._blocked_producers[process_id] = start_time
+                        self._not_full.wait(timeout=remaining)
+                    else:
+                        with self._state_lock:
+                            self._blocked_producers[process_id] = start_time
+                        self._not_full.wait()
+            finally:
+                # Dù thành công hay thất bại, tiến trình không còn bị chặn
+                with self._state_lock:
+                    self._blocked_producers.pop(process_id, None)
 
-            # Khi thoát vòng lặp chờ, giải phóng cờ blocked
-            with self._state_lock:
-                self._blocked_producers.pop(process_id, None)
-
-            # 2. Đưa gói tin vào hàng đợi
+            # 2. Gán sequence (đang giữ mutex nên giá trị là duy nhất) rồi đưa gói tin vào hàng đợi
+            packet.sequence = self._seq_counter
+            self._seq_counter += 1
             if self._is_priority:
-                # Đưa vào danh sách có sắp xếp theo priority giảm dần
-                inserted = False
+                # Tie-breaking (HDH-88): gói tin mới chỉ chen trước gói tin có priority THẤP HƠN hẳn,
+                # nên cùng priority thì gói tin vào trước luôn đứng trước (FIFO).
+                index = len(self._queue)
                 for i, existing in enumerate(self._queue):
-                    if packet.priority > existing.priority:
-                        self._queue.insert(i, packet)
-                        inserted = True
+                    if packet < existing:
+                        index = i
                         break
-                if not inserted:
-                    self._queue.append(packet)
+                self._queue.insert(index, packet)
             else:
                 self._queue.append(packet)
 
-            # Báo hiệu cho các Consumer đang chờ
+            # Báo hiệu cho một Consumer đang chờ
             self._not_empty.notify()
-            log_trace("ENQUEUE", f"Packet_ID: {packet.id}")
+
             return IPCResult(
                 status=IPCStatus.SUCCESS.value,
                 data=packet,
@@ -206,46 +223,48 @@ class MessageQueue(IIPCMechanism):
             process_id: Định danh tiến trình nhận.
             timeout:
                 - 0.0: Non-blocking (cho GUI/step-by-step). Nếu rỗng, trả về ngay "BLOCKED".
-                - > 0.0: Chờ tối đa `timeout` giây trước khi trả về "BLOCKED".
+                - > 0.0: Chờ tối đa `timeout` giây, hết hạn thì trả về "TIMEOUT".
                 - None: Blocking vô hạn (chờ cho tới khi có tin nhắn mới).
+
+        Returns:
+            IPCResult: Trạng thái SUCCESS (kèm gói tin lấy ra), BLOCKED hoặc TIMEOUT.
         """
         start_time = time.time()
 
         with self._not_empty:
-            # 1. Kiểm tra hàng đợi rỗng
-            while len(self._queue) == 0:
-                log_trace("WAIT_FULL", f"Process: {process_id}")
-                if timeout == 0.0:
-                    return IPCResult(
-                        status=IPCStatus.BLOCKED.value,
-                        success=False,
-                        detail="Hàng đợi tin nhắn rỗng, không có gói tin nào.",
-                    )
-                if timeout is not None:
-                    elapsed = time.time() - start_time
-                    remaining = timeout - elapsed
-                    if remaining <= 0:
+            try:
+                # 1. Chờ cho đến khi hàng đợi có tin nhắn
+                while len(self._queue) == 0:
+                    if timeout == 0.0:
                         return IPCResult(
-                            status=IPCStatus.TIMEOUT.value,
+                            status=IPCStatus.BLOCKED.value,
                             success=False,
-                            detail=f"Quá thời gian chờ đọc ({timeout}s) do hàng đợi rỗng.",
+                            detail="Hàng đợi tin nhắn rỗng, không có gói tin nào.",
                         )
-                    with self._state_lock:
-                        self._blocked_consumers[process_id] = start_time
-                    self._not_empty.wait(timeout=remaining)
-                else:
-                    with self._state_lock:
-                        self._blocked_consumers[process_id] = start_time
-                    self._not_empty.wait()
+                    if timeout is not None:
+                        remaining = timeout - (time.time() - start_time)
+                        if remaining <= 0:
+                            return IPCResult(
+                                status=IPCStatus.TIMEOUT.value,
+                                success=False,
+                                detail=f"Quá thời gian chờ đọc ({timeout}s) do hàng đợi rỗng.",
+                            )
+                        with self._state_lock:
+                            self._blocked_consumers[process_id] = start_time
+                        self._not_empty.wait(timeout=remaining)
+                    else:
+                        with self._state_lock:
+                            self._blocked_consumers[process_id] = start_time
+                        self._not_empty.wait()
+            finally:
+                # Dù thành công hay thất bại, tiến trình không còn bị chặn
+                with self._state_lock:
+                    self._blocked_consumers.pop(process_id, None)
 
-            # Khi thoát vòng lặp chờ, giải phóng cờ blocked
-            with self._state_lock:
-                self._blocked_consumers.pop(process_id, None)
-
-            # 2. Rút gói tin ra khỏi hàng đợi
+            # 2. Rút gói tin ở đầu hàng đợi (gói tin ưu tiên cao nhất, vào sớm nhất)
             packet = self._queue.pop(0)
-            log_trace("DEQUEUE", f"Packet_ID: {packet.id}")
-            # Báo hiệu cho các Producer đang chờ
+
+            # Báo hiệu cho một Producer đang chờ
             self._not_full.notify()
 
             return IPCResult(
@@ -258,8 +277,18 @@ class MessageQueue(IIPCMechanism):
     def get_state(self) -> dict[str, Any]:
         """
         Lấy snapshot toàn bộ trạng thái hiện tại của Message Queue để GUI render.
+
+        Returns:
+            dict gồm các khóa bắt buộc của IIPCMechanism: "buffer", "in_ptr", "out_ptr",
+            "mutex", "empty", "full", "blocked_processes"; kèm các khóa bổ sung phục vụ
+            hiển thị ("mechanism", "queue_type", "capacity", "count", "items").
         """
-        with self._mutex:
+        # Thử khóa không chờ để biết mutex có đang bị tiến trình khác giữ hay không;
+        # nếu đang bị giữ thì chờ rồi vẫn lấy snapshot nhất quán.
+        mutex_free = self._mutex.acquire(blocking=False)
+        if not mutex_free:
+            self._mutex.acquire()
+        try:
             current_queue = list(self._queue)
             with self._state_lock:
                 blocked = list(self._blocked_producers.keys()) + list(self._blocked_consumers.keys())
@@ -277,17 +306,20 @@ class MessageQueue(IIPCMechanism):
                 "buffer": buffer_snapshot,
                 "in_ptr": len(current_queue),
                 "out_ptr": 0,
-                "mutex": 0 if self._mutex.locked() else 1,
+                "mutex": 1 if mutex_free else 0,
                 "empty": max(0, self._capacity - len(current_queue)),
                 "full": len(current_queue),
                 "blocked_processes": blocked,
                 "items": [pkt.to_dict() for pkt in current_queue],
             }
+        finally:
+            self._mutex.release()
 
     def reset(self) -> None:
-        """Khôi phục trạng thái ban đầu của hàng đợi."""
+        """Khôi phục trạng thái ban đầu của hàng đợi (xóa gói tin, đặt lại bộ đếm sequence)."""
         with self._mutex:
             self._queue.clear()
+            self._seq_counter = 0
             with self._state_lock:
                 self._blocked_producers.clear()
                 self._blocked_consumers.clear()
@@ -306,6 +338,7 @@ class MessageQueue(IIPCMechanism):
         return res.data if res.success else None
 
     def _normalize_packet(self, item: Any, process_id: str) -> MessagePacket:
+        """Đóng gói item (MessagePacket, dict hoặc giá trị bất kỳ) thành MessagePacket."""
         if isinstance(item, MessagePacket):
             return item
         if isinstance(item, dict):
