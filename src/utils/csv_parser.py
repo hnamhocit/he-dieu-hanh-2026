@@ -18,13 +18,14 @@ class SimulationStep:
     message: str = ""
     delay_ms: int = 0
     priority: int = 0
+    simulate_error: str = "NONE"
 
 
 class CSVParser:
     """Đọc và kiểm tra dữ liệu CSV. Quy tắc các trường nằm ở README mục 6.1."""
 
     REQUIRED_COLUMNS = ("id", "action", "sender", "receiver")
-    OPTIONAL_COLUMNS = ("message", "delay_ms", "priority")
+    OPTIONAL_COLUMNS = ("message", "delay_ms", "priority", "simulate_error")
     ACTIONS = frozenset({"PRODUCE", "CONSUME", "SEND", "RECEIVE"})
 
     def parse(self, file_path: str | Path) -> list[SimulationStep]:
@@ -98,7 +99,10 @@ class CSVParser:
             raise ValueError(f"Dòng {line}, cột 'delay_ms': không được âm.")
 
         priority = self._parse_int(row.get("priority", "").strip() or "0", "priority", line)
-        return SimulationStep(step_id, action, sender, receiver, message, delay_ms, priority)
+        simulate_error = row.get("simulate_error", "").strip().upper() or "NONE"
+        return SimulationStep(
+            step_id, action, sender, receiver, message, delay_ms, priority, simulate_error
+        )
 
     @staticmethod
     def _parse_int(value: str, field: str, line: int) -> int:

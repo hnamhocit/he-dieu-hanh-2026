@@ -146,6 +146,23 @@ class SharedMemory(IIPCMechanism):
         Returns:
             IPCResult: Kết quả thao tác kèm trạng thái "SUCCESS" hoặc "BLOCKED".
         """
+        # Tầng Guard bảo vệ biên cực đại: không cho phép payload vượt quá 100 ký tự (Kịch bản 7 Oracle)
+        msg_str = ""
+        if isinstance(item, str):
+            msg_str = item
+        elif hasattr(item, "message"):
+            msg_str = str(item.message)
+        elif isinstance(item, dict) and "message" in item:
+            msg_str = str(item["message"])
+
+        if len(msg_str) > 100:
+            return IPCResult(
+                status=IPCStatus.ERROR.value,
+                data=None,
+                success=False,
+                detail=f"Payload vượt quá giới hạn 100 ký tự (độ dài: {len(msg_str)}). Bị chặn bởi tầng Guard.",
+            )
+
         # Xử lý mô phỏng độ trễ (Fault Injection - DELAY) trước khi vào đoạn găng
         sim_error, delay_sec = self._extract_error_and_delay(item)
         if sim_error == "DELAY" or delay_sec > 0:

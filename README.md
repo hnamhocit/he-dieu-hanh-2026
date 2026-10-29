@@ -59,7 +59,7 @@ python src/main.py
 
 Giao diện ứng dụng PyQt6 được thiết kế chuẩn mực theo Wireframe với 4 phân khu chức năng:
 1. **Nạp & Kiểm tra kịch bản CSV (CSV Input):** Nhấn **Chọn file** để nạp file từ `data/input/*.csv`. Nhấn **Kiểm tra** để đọc và xác thực dữ liệu ở luồng nền; bắt lỗi hiển thị mã chi tiết (`INVALID_DATA`, `FILE_READ_ERROR`, `INVALID_CSV`).
-2. **Cấu hình tham số:** Chọn cơ chế IPC (`Shared Memory`, `Message Queue`), dung lượng bộ đệm (`Buffer Capacity`), và chế độ ưu tiên (`Priority Queue`).
+2. **Cấu hình tham số:** Chọn cơ chế IPC (`Shared Memory`, `Message Queue`), dung lượng bộ đệm (`Buffer Capacity`), và checkbox kích hoạt chế độ **Hàng đợi ưu tiên (Priority Queue)** khi chọn Message Queue.
 3. **Khối trực quan hóa bộ nhớ động (Memory Slots Visualization):** Trực quan hóa từng ô nhớ của Circular Buffer theo thời gian thực với các trạng thái màu sắc (`EMPTY`, `OCCUPIED`, `LOCKED`, `READING`, `WRITING`), cùng vị trí con trỏ ghi (`in_ptr`) và đọc (`out_ptr`).
 4. **Bảng nhật ký sự kiện & Điều khiển mô phỏng (Trace Log & Controls):** Điều khiển tiến trình chạy (**Bắt đầu**, **Tạm dừng**, **Tiếp tục**, **Reset**), bảng Trace hiển thị chi tiết trạng thái từng bước và cho phép xuất toàn bộ lịch sử ra file CSV.
 
@@ -67,29 +67,38 @@ Giao diện ứng dụng PyQt6 được thiết kế chuẩn mực theo Wirefram
 
 ## 2. Hướng dẫn kiểm thử (Testing)
 
-Dự án cung cấp sẵn kịch bản chạy thử nghiệm Terminal độc lập và bộ test case tự động:
+Dự án cung cấp sẵn kịch bản chạy thử nghiệm Terminal độc lập và bộ test case tự động toàn diện (99 tests passed, 100% assertions thực tế):
 
 ### 2.1. Chạy nhanh kịch bản mô phỏng Terminal (Không cần cài thư viện ngoài)
-Chạy giả lập đồng thời **3 Producers** và **2 Consumers** tranh chấp vùng nhớ đệm chung (Shared Memory Bounded Buffer), hiển thị Trace Log chi tiết và Báo cáo đối soát Oracle:
+- **Shared Memory Bounded Buffer:** Giả lập đồng thời 3 Producers và 2 Consumers tranh chấp vùng nhớ đệm chung, hiển thị Trace Log chi tiết và Báo cáo đối soát Oracle:
+  ```bash
+  python3 tests/console_shm_test.py
+  ```
+- **Message Queue Monitor States:** Giả lập kiểm tra trạng thái đầy/rỗng, non-blocking dequeue và blocking Producer khi hàng đợi đầy:
+  ```bash
+  python3 tests/test_ipc_console.py
+  ```
+
+### 2.2. Chạy kịch bản kiểm thử lỗi biên (Boundary Tests & Guard Protection)
+Kiểm tra Buffer capacity = 1, payload rỗng `""`, payload chạm ngưỡng cực đại 100 ký tự, tầng Guard chặn gói tin vượt biên 101 ký tự và tie-breaking FIFO:
 ```bash
-python3 tests/console_shm_test.py
+python3 tests/test_boundary.py
 ```
 
-### 2.2. Chạy toàn bộ Unit Tests với `unittest`
-Kiểm tra toàn bộ các module Core IPC, CSV Parser/Reader, và các trường hợp kiểm thử lỗi biên:
+### 2.3. Chạy kịch bản kiểm thử tải cao & Trace Log Integrity (Stress Test)
+Kiểm tra áp lực 500 gói tin đồng thời (5 Producers, 5 Consumers), đo tính đơn điệu tăng dần của timestamp và độ toàn vẹn không bị race condition của file log:
+```bash
+python3 tests/test_stress_fault.py
+```
+
+### 2.4. Chạy toàn bộ Unit Tests với `unittest`
 ```bash
 python3 -m unittest discover tests
 ```
 
-### 2.3. Chạy kịch bản kiểm thử tải cao & Trace Log Integrity
-Kiểm tra độ chính xác thời gian thực (đơn điệu tăng dần) và tính toàn vẹn của file log khi chịu áp lực 500 gói tin đồng thời:
+### 2.5. Chạy kiểm thử tự động & đo độ phủ mã nguồn với `pytest`
 ```bash
-python3 src/core/test_stress_fault.py
-```
-
-### 2.4. Chạy kiểm thử tự động với `pytest` (nếu môi trường có cài pytest)
-```bash
-pytest -v -s
+pytest -v -s --cov=src tests/
 ```
 
 ---
@@ -136,24 +145,24 @@ Dự án hiện thực và trực quan hóa các cơ chế **Giao tiếp Liên t
 ```text
 he-dieu-hanh-2026/
 ├── .gitignore                  # Bộ lọc file chuẩn cho dự án Python
-├── requirements.txt            # Danh sách thư viện phụ thuộc (PyQt6, pytest)
+├── requirements.txt            # Danh sách thư viện phụ thuộc (PyQt6, pytest, pytest-cov)
 ├── MEMBER_WORKFLOW.md          # Quy chuẩn Git & Jira workflow cho thành viên
 ├── README.md                   # Tài liệu tổng quan & hướng dẫn dự án
 │
 ├── src/                        # Mã nguồn chính của ứng dụng
-│   ├── core/                   # Tầng Logic IPC độc lập khỏi GUI
+│   ├── core/                   # Tầng Logic IPC độc lập hoàn toàn khỏi GUI
+│   │   ├── __init__.py         # Module export & Trace Logger đa luồng
 │   │   ├── ipc_interface.py    # Interface IIPCMechanism & IPCResult (HDH-22)
 │   │   ├── shared_memory.py    # Circular Buffer, Mutex & Semaphore, Rollback (HDH-24, HDH-86)
-│   │   ├── message_queue.py    # Message Queue FIFO/Priority, Monitor Pattern (HDH-14, HDH-27)
-│   │   ├── fault_injector.py   # Module chèn lỗi mô phỏng (Delay, Checksum, Crash) (HDH-83)
-│   │   └── test_stress_fault.py# Kịch bản kiểm thử tải cao và toàn vẹn log (HDH-84)
+│   │   ├── message_queue.py    # Message Queue FIFO/Priority, Monitor Pattern (HDH-14, HDH-27, HDH-88)
+│   │   └── fault_injector.py   # Module chèn lỗi mô phỏng (Delay, Checksum, Crash) (HDH-83)
 │   ├── gui/                    # Tầng Giao diện PyQt6
-│   │   ├── main_window.py      # Cửa sổ chính tích hợp layout và điều khiển
+│   │   ├── main_window.py      # Cửa sổ chính tích hợp layout, controls & Priority checkbox
 │   │   ├── simulation_controller.py # Bộ điều phối mô phỏng theo frame và QTimer
 │   │   ├── widgets.py          # Custom widget MemorySlotsWidget và bảng Trace
 │   │   └── styles.py           # Định dạng CSS giao diện
 │   ├── utils/                  # Module hỗ trợ I/O
-│   │   ├── csv_parser.py       # Trình phân tích & kiểm tra định dạng CSV
+│   │   ├── csv_parser.py       # Trình phân tích & kiểm tra định dạng CSV (hỗ trợ simulate_error)
 │   │   └── csv_reader.py       # Bộ đọc CSV tầng thấp
 │   └── main.py                 # Điểm khởi chạy ứng dụng GUI (Entrypoint)
 │
@@ -161,10 +170,12 @@ he-dieu-hanh-2026/
 │   ├── tong_quan_de_tai.md     # Phần 1: Tổng quan đề tài mô phỏng IPC (HDH-85)
 │   ├── shared_memory_spec.md   # Đặc tả kỹ thuật, thuật toán, State Diagram & Invariants (HDH-10, HDH-87)
 │   ├── message_queue_spec.md   # Đặc tả kỹ thuật Message Queue & Monitor (HDH-14, HDH-22)
-│   ├── oracle_tinh_tay.md      # Bảng tính tay Oracle cho các ca kiểm thử (HDH-33)
-│   ├── test_plan.md            # Kế hoạch kiểm thử 10 ca chi tiết (HDH-19)
+│   ├── message_queue_algorithm.md # Báo cáo phân tích thuật toán Priority Queue & Tie-breaking
+│   ├── oracle_tinh_tay.md      # Bảng tính tay Oracle cho 8 kịch bản kiểm thử (HDH-33, HDH-92)
+│   ├── test_plan.md            # Kế hoạch kiểm thử chi tiết (HDH-19)
 │   ├── checklist_cham_diem.md  # Tiêu chí chấm điểm bám sát đề cương
-│   └── BAO_CAO_TIEN_DO_SPRINT_1.md # Báo cáo tiến độ Sprint 1
+│   ├── BAO_CAO_TIEN_DO_SPRINT_1.md # Báo cáo tiến độ Sprint 1
+│   └── AI_CONTEXT_STATUS_AND_BUGS.md # Bàn giao ngữ cảnh & Nhật ký sửa 6 lỗi học thuật
 │
 ├── data/
 │   ├── input/                  # File dữ liệu kịch bản đầu vào (.csv)
@@ -173,15 +184,20 @@ he-dieu-hanh-2026/
 │   │   ├── test_slots.csv
 │   │   └── test_slots_edges.csv
 │   └── output/                 # File log trace chi tiết (.csv) được sinh ra khi chạy
-│       └── trace_execution.csv
+│       ├── trace_execution.csv
+│       └── trace_log_boundary.csv
 │
-└── tests/                      # Bộ kiểm thử tự động
+└── tests/                      # Bộ kiểm thử tự động (99 tests passed)
     ├── console_shm_test.py     # Mô phỏng Console đa luồng & Trace đối soát Oracle
+    ├── test_ipc_console.py     # Mô phỏng Console Message Queue Monitor states
     ├── test_shared_memory.py   # Unit test kiểm chứng Circular Buffer & Invariants
     ├── test_message_queue.py   # Unit test kiểm chứng Message Queue & Priority
-    ├── test_boundary.py        # Test case kiểm tra trường hợp lỗi biên
-    ├── test_csv_parser.py      # Test case kiểm tra parser kịch bản
-    └── test_simulation_controller.py # Test bộ điều phối simulation
+    ├── test_boundary.py        # Test case kiểm tra trường hợp lỗi biên & Guard 100 ký tự
+    ├── test_stress_fault.py    # Kịch bản kiểm thử tải cao 500 gói tin & Toàn vẹn Log
+    ├── test_csv_parser.py      # Test case kiểm tra parser kịch bản (kèm simulate_error)
+    ├── test_csv_reader.py      # Test case kiểm tra bộ đọc CSV an toàn
+    ├── test_simulation_controller.py # Test bộ điều phối simulation & Priority mode
+    └── test_main_window.py     # Offscreen GUI tests cho layout & controls
 ```
 
 ---
@@ -245,6 +261,9 @@ File kịch bản định nghĩa danh sách các thông điệp và tiến trìn
 | `priority` | `int` | Không | Độ ưu tiên gói tin (0 đến 5; áp dụng cho **Message Queue**). |
 | `simulate_error` | `string` | Không | Loại lỗi giả lập: `NONE`, `DELAY`, `CHECKSUM`. |
 
+> [!NOTE]
+> **Giới hạn độ dài Payload:** Hệ thống quy định kích thước tin nhắn tối đa là **100 ký tự**. Nếu gói tin vượt quá 100 ký tự, tầng Guard tại Core IPC sẽ từ chối an toàn ngay từ cổng vào (`status='ERROR'`), bảo vệ bộ nhớ không bị ghi đè.
+
 **Ví dụ nội dung file `data/input/sample_messages.csv`:**
 ```csv
 id,action,sender,receiver,message,delay_ms,priority,simulate_error
@@ -261,14 +280,14 @@ Ghi vết vi sự kiện chính xác theo tầng nano giây phục vụ kiểm c
 | Cột | Kiểu dữ liệu | Mô tả |
 | :--- | :--- | :--- |
 | `timestamp_ns` | `int` | Dấu thời gian nano giây độ chính xác cao (`time.perf_counter_ns()`). |
-| `event_name` | `string` | Tên vi sự kiện (`LOCK_ACQUIRE`, `WRITE_SLOT`, `READ_SLOT`, `WAIT_EMPTY`,...). |
+| `event_name` | `string` | Tên vi sự kiện (`LOCK_ACQUIRE`, `WRITE_SLOT`, `READ_SLOT`, `WAIT_EMPTY`, `ENQUEUE`, `DEQUEUE`, `FAULT_CHECKSUM`,...). |
 | `details` | `string` | Chi tiết thao tác (tiến trình, vị trí slot nhớ, giá trị con trỏ, trạng thái). |
 
 ---
 
 ## 7. Tính đúng & Phương pháp Oracle (Verification)
 
-Để chứng minh tính đúng đắn của giải thuật, nhóm sử dụng **Mô hình Oracle tính tay và Hệ bất biến toán học** để so sánh `Expected` và `Actual`:
+Để chứng minh tính đúng đắn của giải thuật, nhóm sử dụng **Mô hình Oracle tính tay và Hệ bất biến toán học** để so sánh `Expected` và `Actual` (toàn bộ 99 tests tự động đã đạt 100% assertions):
 
 | Mã Test Case | Loại kịch bản | Mô tả điều kiện đầu vào | Kết quả kỳ vọng (Expected) | Kết quả thực tế (Actual) | Đánh giá |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -278,6 +297,8 @@ Ghi vết vi sự kiện chính xác theo tầng nano giây phục vụ kiểm c
 | **TC-04** | Tranh chấp tải cao | Nhiều Producer và Consumer cùng chạy song song | Mutex bảo vệ loại trừ tương hỗ, không mất/trùng dữ liệu | 3 Producers & 2 Consumers chạy đa luồng an toàn 100% | **ĐẠT (PASSED)** |
 | **TC-05** | Wrap-around con trỏ | Ghi và đọc vượt quá dung lượng mảng | Con trỏ `in_ptr`, `out_ptr` tịnh tiến modulo tuần hoàn | Modulo wrap-around $0 \rightarrow capacity-1 \rightarrow 0$ chính xác | **ĐẠT (PASSED)** |
 | **TC-06** | Priority Queue | Nạp tin thường và tin ưu tiên cao vào Message Queue | Tin có priority lớn hơn được lấy ra trước | Gói tin ưu tiên cao vượt lên đầu hàng đợi chính xác | **ĐẠT (PASSED)** |
+| **TC-07** | Guard Payload Limit | Gửi gói tin dài 100 ký tự (hợp lệ) và 101 ký tự (vượt biên) | Gói 100 nạp thành công; Gói 101 bị Guard chặn trả về `status='ERROR'` | Core kiểm soát biên, không nạp gói 101 vào buffer, dữ liệu an toàn | **ĐẠT (PASSED)** |
+| **TC-08** | Tie-breaking Priority | Hai tin nhắn có cùng Priority = 5 gửi liên tiếp | Gói tin gửi trước ($t_1$) được rút ra trước gói gửi sau ($t_2$) theo luật FIFO | Trật tự hàng đợi bảo toàn FIFO khi trùng mức ưu tiên | **ĐẠT (PASSED)** |
 
 ---
 

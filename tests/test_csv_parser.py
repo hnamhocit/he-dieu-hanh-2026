@@ -49,6 +49,18 @@ class TestCSVParser(unittest.TestCase):
         steps = self.parse_text("receiver,id,sender,action\nC1,1,P1,PRODUCE\n")
         self.assertEqual(steps, [SimulationStep(1, "PRODUCE", "P1", "C1")])
 
+    def test_simulate_error_column(self) -> None:
+        header_with_error = "id,action,sender,receiver,message,delay_ms,priority,simulate_error\n"
+        steps = self.parse_text(
+            header_with_error
+            + "1,PRODUCE,P1,C1,msg1,10,0,DELAY\n"
+            + "2,CONSUME,C1,P1,,0,0,checksum\n"
+            + "3,PRODUCE,P1,C1,msg3,0,0,\n"
+        )
+        self.assertEqual(steps[0].simulate_error, "DELAY")
+        self.assertEqual(steps[1].simulate_error, "CHECKSUM")
+        self.assertEqual(steps[2].simulate_error, "NONE")
+
     def test_empty_optional_cells(self) -> None:
         for row in ("1,SEND,P1,C1,,,\n", "1,SEND,P1,C1,, , \n"):
             with self.subTest(row=row):
