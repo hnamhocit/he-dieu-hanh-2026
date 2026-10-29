@@ -1,7 +1,7 @@
 """
 Unit Test: test_message_queue.py
-Kiểm thử toàn diện module Message Queue theo yêu cầu Jira HDH-14, 15, 27, 28, 29.
-Đảm bảo kiểm tra đầy đủ: FIFO, Priority, Blocking, Non-blocking, Timeout, và get_state().
+Kiểm thử toàn diện module Message Queue theo yêu cầu Jira HDH-14, 15, 27, 28, 29, 88.
+Đảm bảo kiểm tra đầy đủ: FIFO, Priority, Tie-breaking, Blocking, Non-blocking, Timeout, và get_state().
 """
 
 import threading
@@ -177,6 +177,79 @@ class TestMessageQueue(unittest.TestCase):
         self.mq.reset()
         self.assertTrue(self.mq.is_empty)
         self.assertEqual(self.mq.count, 0)
+
+
+def _produce_named(mq: MessageQueue, name: str, priority: int = 0) -> None:
+    """Gửi một gói tin có nội dung `name` vào hàng đợi (non-blocking) và kiểm tra thành công."""
+    result = mq.produce({"message": name, "priority": priority}, process_id="P", timeout=0.0)
+    assert result.status == IPCStatus.SUCCESS.value
+
+
+def _consume_all_names(mq: MessageQueue) -> list[str]:
+    """Lấy hết gói tin ra (non-blocking) và trả về danh sách nội dung theo thứ tự lấy ra."""
+    names: list[str] = []
+    while True:
+        result = mq.consume(process_id="C", timeout=0.0)
+        if not result.success:
+            return names
+        names.append(result.data.message)
+
+
+class TestTieBreaking(unittest.TestCase):
+    """HDH-88: luật phân xử hòa khi nhiều gói tin có cùng mức Priority."""
+
+    def test_same_priority_is_fifo(self) -> None:
+        """Cùng priority thì gói tin vào hàng đợi trước phải được lấy ra trước."""
+        mq = MessageQueue(capacity=10, is_priority=True)
+        for name, priority in (("A", 1), ("B", 5), ("C", 5), ("D", 5), ("E", 1)):
+            _produce_named(mq, name, priority)
+        self.assertEqual(_consume_all_names(mq), ["B", "C", "D", "A", "E"])
+
+    def test_higher_priority_jumps_ahead(self) -> None:
+        """Gói tin priority cao hơn vào sau vẫn phải được lấy ra trước."""
+        mq = MessageQueue(capacity=10, is_priority=True)
+        _produce_named(mq, "low", 0)
+        _produce_named(mq, "high", 9)
+        self.assertEqual(_consume_all_names(mq), ["high", "low"])
+
+    def test_fifo_mode_ignores_priority(self) -> None:
+        """Chế độ FIFO không xét priority."""
+        mq = MessageQueue(capacity=10, is_priority=False)
+        _produce_named(mq, "A", 1)
+        _produce_named(mq, "B", 9)
+        _produce_named(mq, "C", 5)
+        self.assertEqual(_consume_all_names(mq), ["A", "B", "C"])
+
+    def test_sequence_increases_and_resets(self) -> None:
+        """sequence tăng dần theo thứ tự vào hàng đợi và về 0 sau reset()."""
+        mq = MessageQueue(capacity=10, is_priority=True)
+        _produce_named(mq, "A")
+        _produce_named(mq, "B")
+        sequences = [item["sequence"] for item in mq.get_state()["items"]]
+        self.assertEqual(sequences, [0, 1])
+        mq.reset()
+        _produce_named(mq, "C")
+        self.assertEqual(mq.get_state()["items"][0]["sequence"], 0)
+
+
+class TestBlockedState(unittest.TestCase):
+    """HDH-88: trạng thái chặn và snapshot get_state() theo quy định nhóm."""
+
+    def test_timeout_clears_blocked_process(self) -> None:
+        """Sau khi TIMEOUT, tiến trình không còn nằm trong blocked_processes."""
+        mq = MessageQueue(capacity=1)
+        _produce_named(mq, "A")
+        result = mq.produce("B", process_id="P2", timeout=0.05)
+        self.assertEqual(result.status, IPCStatus.TIMEOUT.value)
+        self.assertEqual(mq.get_state()["blocked_processes"], [])
+
+    def test_get_state_has_required_keys(self) -> None:
+        """get_state() có đủ các khóa bắt buộc và mutex = 1 khi không ai giữ khóa."""
+        state = MessageQueue(capacity=3).get_state()
+        for key in ("buffer", "in_ptr", "out_ptr", "mutex", "empty", "full", "blocked_processes"):
+            self.assertIn(key, state)
+        self.assertEqual(state["mutex"], 1)
+        self.assertEqual((state["empty"], state["full"]), (3, 0))
 
 
 if __name__ == "__main__":
