@@ -109,5 +109,4 @@ data/output/*.csv
 
 # Internal documents and lock files
 *.docx
-!docs/HDH-98_Muc_3_3_GUI_CSV_Parser.docx
 .~lock.*#
