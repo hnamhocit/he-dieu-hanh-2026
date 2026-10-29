@@ -173,9 +173,7 @@ he-dieu-hanh-2026/
 │   ├── message_queue_algorithm.md # Báo cáo phân tích thuật toán Priority Queue & Tie-breaking
 │   ├── oracle_tinh_tay.md      # Bảng tính tay Oracle cho 8 kịch bản kiểm thử (HDH-33, HDH-92)
 │   ├── test_plan.md            # Kế hoạch kiểm thử chi tiết (HDH-19)
-│   ├── checklist_cham_diem.md  # Tiêu chí chấm điểm bám sát đề cương
-│   ├── BAO_CAO_TIEN_DO_SPRINT_1.md # Báo cáo tiến độ Sprint 1
-│   └── AI_CONTEXT_STATUS_AND_BUGS.md # Bàn giao ngữ cảnh & Nhật ký sửa 6 lỗi học thuật
+│   └── checklist_cham_diem.md  # Tiêu chí chấm điểm bám sát đề cương
 │
 ├── data/
 │   ├── input/                  # File dữ liệu kịch bản đầu vào (.csv)
