@@ -12,24 +12,28 @@ class BufferSlots(QWidget):
     COLORS = {
         "EMPTY": "#f8fafc",
         "LOCKED": "#fef3c7",
+        "WRITING": "#ede9fe",
         "WRITTEN": "#dcfce7",
         "READING": "#dbeafe",
     }
     BORDER_COLORS = {
         "EMPTY": "#cbd5e1",
         "LOCKED": "#f59e0b",
+        "WRITING": "#8b5cf6",
         "WRITTEN": "#10b981",
         "READING": "#2563eb",
     }
     TEXT_COLORS = {
         "EMPTY": "#64748b",
         "LOCKED": "#b45309",
+        "WRITING": "#6d28d9",
         "WRITTEN": "#047857",
         "READING": "#1d4ed8",
     }
     LABELS = {
         "EMPTY": "Trống",
         "LOCKED": "Đang khóa",
+        "WRITING": "Đang ghi",
         "WRITTEN": "Đã ghi",
         "READING": "Đang đọc",
     }
@@ -55,6 +59,7 @@ class BufferSlots(QWidget):
         self.active_slot = None
         self.phase = None
         self.first_visible = 0
+        self._hit_boxes = []
         self.setToolTip("")
         self.update()
 
@@ -64,6 +69,9 @@ class BufferSlots(QWidget):
         self.active_slot = None
         self.phase = None
         self.first_visible = min(self.first_visible, self.capacity - 1)
+        # Không dùng vùng hover cũ trong khi chờ Qt vẽ snapshot mới.
+        self._hit_boxes = []
+        self.setToolTip("")
         self.update()
 
     def set_frame(self, frame: dict) -> None:
@@ -79,7 +87,7 @@ class BufferSlots(QWidget):
         return min(self.capacity, max(1, self.width() // 92))
 
     def slot_state(self, index):
-        if index == self.active_slot and self.phase in ("LOCKED", "READING"):
+        if index == self.active_slot and self.phase in ("LOCKED", "WRITING", "READING"):
             return self.phase
         return "EMPTY" if self.buffer[index] is None else "WRITTEN"
 
@@ -138,7 +146,7 @@ class BufferSlots(QWidget):
 
             # Vẽ nền và viền ô rõ nét, nổi bật theo trạng thái
             border_color = self.BORDER_COLORS.get(state, "#94a3b8")
-            pen_width = 2.0 if state in ("LOCKED", "READING") else 1.5
+            pen_width = 2.0 if state in ("LOCKED", "WRITING", "READING") else 1.5
             painter.setPen(QPen(QColor(border_color), pen_width))
             painter.setBrush(QColor(self.COLORS[state]))
             painter.drawRoundedRect(rect, 6, 6)
