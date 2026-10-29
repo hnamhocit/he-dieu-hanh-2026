@@ -46,7 +46,11 @@ class SimulationController(QObject):
                 delay = step["delay_ms"]
                 if not isinstance(delay, int) or not 0 <= delay <= 2_147_483_647:
                     raise ValueError(f"delay_ms của bước {step['id']} ngoài phạm vi QTimer.")
-            self.core = factories[name](configuration["buffer_capacity"])
+            is_priority = bool(configuration.get("is_priority", False))
+            if name == "MESSAGE_QUEUE":
+                self.core = MessageQueue(configuration["buffer_capacity"], is_priority=is_priority)
+            else:
+                self.core = factories[name](configuration["buffer_capacity"])
         except (KeyError, TypeError, ValueError) as error:
             self._finish(f"Không thể bắt đầu: {error}")
             return

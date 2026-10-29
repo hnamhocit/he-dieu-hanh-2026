@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
+from src.core import log_trace
 
 
 @dataclass
@@ -154,6 +155,26 @@ class MessageQueue(IIPCMechanism):
             IPCResult: Trạng thái SUCCESS (kèm gói tin đã gửi), BLOCKED hoặc TIMEOUT.
         """
         packet = self._normalize_packet(item, process_id)
+
+        # Tầng Guard bảo vệ biên cực đại: không cho phép payload vượt quá 100 ký tự (Kịch bản 7 Oracle)
+        if len(packet.message) > 100:
+            return IPCResult(
+                status=IPCStatus.ERROR.value,
+                data=None,
+                success=False,
+                detail=f"Payload vượt quá giới hạn 100 ký tự (độ dài: {len(packet.message)}). Bị chặn bởi tầng Guard.",
+            )
+
+        # Xử lý mô phỏng độ trễ (Fault Injection - DELAY) trước khi vào hàng đợi
+        sim_error = str(getattr(packet, "simulate_error", "NONE")).upper()
+        delay_ms = getattr(packet, "delay_ms", 0)
+        if sim_error == "DELAY" or (isinstance(delay_ms, (int, float)) and delay_ms > 0):
+            actual_delay = (delay_ms / 1000.0) if delay_ms > 0 else 0.05
+            time.sleep(actual_delay)
+
+        if sim_error == "CHECKSUM":
+            log_trace("FAULT_CHECKSUM", f"Process: {process_id}")
+
         start_time = time.time()
 
         with self._not_full:
@@ -161,6 +182,7 @@ class MessageQueue(IIPCMechanism):
                 # 1. Chờ cho đến khi hàng đợi có chỗ trống
                 while len(self._queue) >= self._capacity:
                     if timeout == 0.0:
+                        log_trace("WAIT_NOT_FULL", f"Process: {process_id}")
                         return IPCResult(
                             status=IPCStatus.BLOCKED.value,
                             success=False,
@@ -169,6 +191,7 @@ class MessageQueue(IIPCMechanism):
                     if timeout is not None:
                         remaining = timeout - (time.time() - start_time)
                         if remaining <= 0:
+                            log_trace("WAIT_NOT_FULL", f"Process: {process_id} (Timeout)")
                             return IPCResult(
                                 status=IPCStatus.TIMEOUT.value,
                                 success=False,
@@ -176,10 +199,12 @@ class MessageQueue(IIPCMechanism):
                             )
                         with self._state_lock:
                             self._blocked_producers[process_id] = start_time
+                        log_trace("WAIT_NOT_FULL", f"Process: {process_id}")
                         self._not_full.wait(timeout=remaining)
                     else:
                         with self._state_lock:
                             self._blocked_producers[process_id] = start_time
+                        log_trace("WAIT_NOT_FULL", f"Process: {process_id}")
                         self._not_full.wait()
             finally:
                 # Dù thành công hay thất bại, tiến trình không còn bị chặn
@@ -203,6 +228,8 @@ class MessageQueue(IIPCMechanism):
 
             # Báo hiệu cho một Consumer đang chờ
             self._not_empty.notify()
+
+            log_trace("ENQUEUE", f"Packet_ID: {packet.id}, Priority: {packet.priority}")
 
             return IPCResult(
                 status=IPCStatus.SUCCESS.value,
@@ -236,6 +263,7 @@ class MessageQueue(IIPCMechanism):
                 # 1. Chờ cho đến khi hàng đợi có tin nhắn
                 while len(self._queue) == 0:
                     if timeout == 0.0:
+                        log_trace("WAIT_NOT_EMPTY", f"Process: {process_id}")
                         return IPCResult(
                             status=IPCStatus.BLOCKED.value,
                             success=False,
@@ -244,6 +272,7 @@ class MessageQueue(IIPCMechanism):
                     if timeout is not None:
                         remaining = timeout - (time.time() - start_time)
                         if remaining <= 0:
+                            log_trace("WAIT_NOT_EMPTY", f"Process: {process_id} (Timeout)")
                             return IPCResult(
                                 status=IPCStatus.TIMEOUT.value,
                                 success=False,
@@ -251,10 +280,12 @@ class MessageQueue(IIPCMechanism):
                             )
                         with self._state_lock:
                             self._blocked_consumers[process_id] = start_time
+                        log_trace("WAIT_NOT_EMPTY", f"Process: {process_id}")
                         self._not_empty.wait(timeout=remaining)
                     else:
                         with self._state_lock:
                             self._blocked_consumers[process_id] = start_time
+                        log_trace("WAIT_NOT_EMPTY", f"Process: {process_id}")
                         self._not_empty.wait()
             finally:
                 # Dù thành công hay thất bại, tiến trình không còn bị chặn
@@ -266,6 +297,8 @@ class MessageQueue(IIPCMechanism):
 
             # Báo hiệu cho một Producer đang chờ
             self._not_full.notify()
+
+            log_trace("DEQUEUE", f"Packet_ID: {packet.id}")
 
             return IPCResult(
                 status=IPCStatus.SUCCESS.value,
