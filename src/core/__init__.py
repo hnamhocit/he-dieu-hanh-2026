@@ -11,25 +11,37 @@ import time
 
 TRACE_FILE_PATH = "data/output/trace_execution.csv"
 _trace_file_lock = threading.Lock()
+_last_timestamp_ns = 0
 
 
 def init_trace_logger() -> None:
+    global _last_timestamp_ns
     try:
         os.makedirs(os.path.dirname(TRACE_FILE_PATH), exist_ok=True)
-        if not os.path.exists(TRACE_FILE_PATH):
+        if not os.path.exists(TRACE_FILE_PATH) or os.path.getsize(TRACE_FILE_PATH) == 0:
             with open(TRACE_FILE_PATH, "w", encoding="utf-8") as f:
                 f.write("timestamp_ns,event_name,details\n")
+        _last_timestamp_ns = 0
     except Exception:
         pass
 
 
 def log_trace(event_name: str, details: str = "") -> None:
-    timestamp = time.perf_counter_ns()
+    global _last_timestamp_ns
     safe_details = f'"{details}"' if ',' in str(details) else str(details)
     try:
         with _trace_file_lock:
+            current_ns = time.perf_counter_ns()
+            if current_ns <= _last_timestamp_ns:
+                current_ns = _last_timestamp_ns + 1
+            _last_timestamp_ns = current_ns
+
+            if not os.path.exists(TRACE_FILE_PATH) or os.path.getsize(TRACE_FILE_PATH) == 0:
+                os.makedirs(os.path.dirname(TRACE_FILE_PATH), exist_ok=True)
+                with open(TRACE_FILE_PATH, "w", encoding="utf-8") as f:
+                    f.write("timestamp_ns,event_name,details\n")
             with open(TRACE_FILE_PATH, "a", encoding="utf-8") as f:
-                f.write(f"{timestamp},{event_name},{safe_details}\n")
+                f.write(f"{current_ns},{event_name},{safe_details}\n")
     except Exception:
         pass
 

@@ -10,7 +10,7 @@ from time import perf_counter
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QAbstractScrollArea, QComboBox, QFileDialog, QFormLayout, QFrame,
+    QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMainWindow, QProgressBar, QPushButton, QScrollArea, QSpinBox,
     QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -209,6 +209,12 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         layout.addLayout(grid)
+        self.priority_checkbox = QCheckBox("Chế độ hàng đợi ưu tiên (Priority Queue)")
+        self.priority_checkbox.setObjectName("priorityCheckBox")
+        self.priority_checkbox.setEnabled(False)
+        self.priority_checkbox.setToolTip("Chỉ kích hoạt khi chọn cơ chế Message Queue")
+        layout.addWidget(self.priority_checkbox)
+        self.mechanism_combo.currentIndexChanged.connect(self._on_mechanism_changed)
         controls = QHBoxLayout()
         self.start_button = QPushButton("Start")
         self.pause_button = QPushButton("Pause")
@@ -417,7 +423,15 @@ class MainWindow(QMainWindow):
         return {"mechanism": self.mechanism_combo.currentData(),
                 "buffer_capacity": self.buffer_spin.value(),
                 "producer_count": self.producer_spin.value(),
-                "consumer_count": self.consumer_spin.value()}
+                "consumer_count": self.consumer_spin.value(),
+                "is_priority": self.priority_checkbox.isChecked()}
+
+    def _on_mechanism_changed(self):
+        is_mq = self.mechanism_combo.currentData() == "MESSAGE_QUEUE"
+        editable = self.state in (UIState.EMPTY, UIState.SELECTED, UIState.READY)
+        self.priority_checkbox.setEnabled(editable and is_mq)
+        if not is_mq:
+            self.priority_checkbox.setChecked(False)
 
     def _set_state(self, state: UIState):
         self.state = state
@@ -426,6 +440,8 @@ class MainWindow(QMainWindow):
         self.check_button.setEnabled(state in (UIState.SELECTED, UIState.READY))
         for widget in (self.mechanism_combo, self.buffer_spin):
             widget.setEnabled(editable)
+        is_mq = self.mechanism_combo.currentData() == "MESSAGE_QUEUE"
+        self.priority_checkbox.setEnabled(editable and is_mq)
         self.producer_spin.setEnabled(False)
         self.consumer_spin.setEnabled(False)
         self.start_button.setEnabled(state in (UIState.READY, UIState.PAUSED))

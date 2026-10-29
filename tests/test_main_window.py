@@ -144,6 +144,7 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(start[0][1], {
             "mechanism": "MESSAGE_QUEUE", "buffer_capacity": 8,
             "producer_count": 3, "consumer_count": 2,
+            "is_priority": False,
         })
         self.assertFalse(self.window.browse_button.isEnabled())
         self.assertFalse(self.window.buffer_spin.isEnabled())
@@ -158,6 +159,26 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(self.window.state, UIState.READY)
         self.assertEqual(len(self.window.messages), SAMPLE_COUNT)
         self.assertTrue(self.window.buffer_spin.isEnabled())
+
+    def test_priority_queue_checkbox_toggle_and_config(self):
+        self.load_sample()
+        # Default is SHARED_MEMORY: checkbox should be disabled and unchecked
+        self.assertFalse(self.window.priority_checkbox.isEnabled())
+        self.assertFalse(self.window.priority_checkbox.isChecked())
+
+        # Switch to MESSAGE_QUEUE: checkbox should become enabled
+        self.window.mechanism_combo.setCurrentIndex(2)
+        self.assertTrue(self.window.priority_checkbox.isEnabled())
+
+        # Check the box
+        self.window.priority_checkbox.setChecked(True)
+        self.assertTrue(self.window.configuration()["is_priority"])
+
+        # Switch back to SHARED_MEMORY: checkbox should be disabled and unchecked
+        self.window.mechanism_combo.setCurrentIndex(0)
+        self.assertFalse(self.window.priority_checkbox.isEnabled())
+        self.assertFalse(self.window.priority_checkbox.isChecked())
+        self.assertFalse(self.window.configuration()["is_priority"])
 
     def test_validation_runs_without_blocking_ui(self):
         release = threading.Event()

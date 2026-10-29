@@ -16,12 +16,12 @@ except ImportError:
     HAS_PYQT6 = False
 
 
-def step(number, action, delay=0):
+def step(number, action, delay=0, priority=0):
     return {"id": number, "action": action,
             "sender": "P1" if action in ("PRODUCE", "SEND") else "C1",
             "receiver": "C1" if action in ("PRODUCE", "SEND") else "P1",
             "message": f"M{number}" if action in ("PRODUCE", "SEND") else "",
-            "delay_ms": delay, "priority": 0}
+            "delay_ms": delay, "priority": priority}
 
 
 @unittest.skipUnless(HAS_PYQT6, "PyQt6 is required for GUI tests")
@@ -49,6 +49,17 @@ class TestSimulationController(unittest.TestCase):
 
     def start(self, steps, mechanism="SHARED_MEMORY", capacity=2):
         self.controller.start(steps, {"mechanism": mechanism, "buffer_capacity": capacity})
+
+    def test_start_message_queue_with_priority_mode(self):
+        steps = [step(1, "SEND", priority=2), step(2, "SEND", priority=5)]
+        self.controller.start(steps, {
+            "mechanism": "MESSAGE_QUEUE",
+            "buffer_capacity": 5,
+            "is_priority": True,
+        })
+        self.wait_until(lambda: not self.controller.running)
+        self.assertTrue(self.controller.core.is_priority)
+        self.assertEqual(self.controller.core.count, 2)
 
     def test_full_empty_and_wraparound_match_oracle(self):
         actions = ["PRODUCE", "PRODUCE", "PRODUCE", "CONSUME", "CONSUME", "CONSUME", "PRODUCE"]
