@@ -9,6 +9,7 @@ from pathlib import Path
 from time import perf_counter
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
@@ -16,7 +17,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from src.gui.styles import STYLESHEET
+from src.gui.styles import STYLESHEET, TRACE_DEFAULT_COLORS, TRACE_STATUS_COLORS
 from src.gui.simulation_controller import SimulationController
 from src.gui.widgets import BufferChart, BufferSlots
 from src.utils.csv_parser import CSVParser
@@ -268,7 +269,7 @@ class MainWindow(QMainWindow):
         buffer_layout.addWidget(_label("▤  Shared Buffer / Message Queue", "cardTitle"))
         self.buffer_slots = BufferSlots()
         buffer_layout.addWidget(self.buffer_slots)
-        legend = _label("Xám: Trống · Vàng: Đang khóa · Xanh lá: Đã ghi · Xanh dương: Đang đọc")
+        legend = _label("Xám: Trống · Vàng: Đang khóa · Tím: Đang ghi · Xanh lá: Đã ghi · Xanh dương: Đang đọc")
         legend.setWordWrap(True)
         buffer_layout.addWidget(legend)
         self.sync_state_label = _label("Mutex: Mở · Empty: 5 · Full: 0 · IN: 0 · OUT: 0")
@@ -326,7 +327,7 @@ class MainWindow(QMainWindow):
         self.trace_table = QTableWidget(0, len(self.TRACE_COLUMNS))
         self.trace_table.setHorizontalHeaderLabels(self.TRACE_COLUMNS)
         self.trace_table.verticalHeader().hide()
-        self.trace_table.setAlternatingRowColors(True)
+        self.trace_table.setAlternatingRowColors(False)
         self.trace_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.trace_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.trace_table.setMinimumHeight(110)
@@ -340,7 +341,9 @@ class MainWindow(QMainWindow):
         self.trace_table.setColumnWidth(1, 155)
         layout.addWidget(self.trace_table)
         row = QHBoxLayout()
-        row.addStretch()
+        legend = _label("Xanh: SUCCESS · Vàng: BLOCKED · Cam: TIMEOUT · Đỏ: ERROR")
+        legend.setWordWrap(True)
+        row.addWidget(legend, 1)
         self.export_button = QPushButton("Xuất Trace CSV")
         self.export_button.setObjectName("exportButton")
         self.export_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
@@ -624,10 +627,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_simulation_finished(self, message):
-        if self.controller.core is not None:
-            snapshot = self.controller.core.get_state()
-            self.buffer_slots.set_snapshot(snapshot)
-            self._show_snapshot(snapshot)
         self._update_actors()
         self._set_state(UIState.READY)
         if any(keyword in message.lower() for keyword in ("lỗi", "error", "không thể", "thất bại")):
@@ -643,10 +642,20 @@ class MainWindow(QMainWindow):
         """Điểm tích hợp dành cho bộ chạy; gọi trên UI thread bằng signal/slot."""
         if len(values) != len(self.TRACE_COLUMNS):
             raise ValueError("Một dòng trace phải có đủ 9 trường.")
+        scrollbar = self.trace_table.verticalScrollBar()
+        follow_tail = scrollbar.value() >= scrollbar.maximum() - 1
+        status = str(values[6]).strip().upper()
+        background, foreground = TRACE_STATUS_COLORS.get(status, TRACE_DEFAULT_COLORS)
         row = self.trace_table.rowCount()
         self.trace_table.insertRow(row)
         for column, value in enumerate(values):
-            self.trace_table.setItem(row, column, QTableWidgetItem(str(value)))
+            item = QTableWidgetItem(str(value))
+            item.setBackground(QColor(background))
+            item.setForeground(QColor(foreground))
+            item.setToolTip(str(value))
+            self.trace_table.setItem(row, column, item)
+        if follow_tail:
+            self.trace_table.scrollToBottom()
         self.export_button.setEnabled(True)
 
     @pyqtSlot()

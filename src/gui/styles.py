@@ -1,5 +1,13 @@
 """Bảng màu và kiểu hiển thị hiện đại, phân tách rõ ràng cho desktop IPC Simulator."""
 
+TRACE_STATUS_COLORS = {
+    "SUCCESS": ("#dcfce7", "#166534"),
+    "BLOCKED": ("#fef3c7", "#92400e"),
+    "TIMEOUT": ("#ffedd5", "#9a3412"),
+    "ERROR": ("#fee2e2", "#991b1b"),
+}
+TRACE_DEFAULT_COLORS = ("#f1f5f9", "#334155")
+
 STYLESHEET = """
 QMainWindow, QScrollArea, QWidget#page {
     background: #edf2f7;
