@@ -9,7 +9,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-
+import queue
+from multiprocessing import Queue
 
 class IPCStatus(str, Enum):
     """Trạng thái thực thi của các thao tác IPC."""
