@@ -1,0 +1,5 @@
+step,action,payload,priority
+abc,produce,Loi_Thu_Tu_Phai_La_So,high
+2,wrong_action,Hanh_Dong_Bi_Viet_Sai,low
+3,produce,,normal
+4,consume,Doc_Tin_Thi_Khong_Co_Payload,

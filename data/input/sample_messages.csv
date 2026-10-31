@@ -6,3 +6,6 @@ id,action,sender,receiver,message,delay_ms,priority
 5,PRODUCE,Process_B,Process_C,"Queue message priority 1",20,1
 6,CONSUME,Process_C,Process_B,"",40,0
 7,PRODUCE,Process_A,Process_B,"Large buffer test message",150,0
+8,CONSUME,Process_B,Process_A,"",60,0
+9,PRODUCE,Process_C,Process_A,"Response data back",90,0
+10,CONSUME,Process_A,Process_C,"",50,0
