@@ -5,14 +5,14 @@ Mô tả: Hiện thực cơ chế IPC Message Queue (Hàng đợi thông điệp
        Hỗ trợ cả cơ chế FIFO lẫn Priority Queue, an toàn đa luồng bằng Monitor
        (threading.Lock + hai Condition Variable `not_full` và `not_empty`).
        Cung cấp API non-blocking (timeout=0.0) cho GUI và blocking/timeout cho Worker.
-Tasks: HDH-14, HDH-15, HDH-27, HDH-28, HDH-29, HDH-88
+Tasks: HDH-14, HDH-15, HDH-27, HDH-28, HDH-29, HDH-88, HDH-95
 Python version: 3.10+
 """
 
 from __future__ import annotations
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
@@ -134,6 +134,62 @@ class MessageQueue(IIPCMechanism):
         with self._mutex:
             return len(self._queue) >= self._capacity
 
+    # ------------------------------------------------------------------
+    # Kiểm tra đầu vào và chuẩn hóa lỗi (HDH-95)
+    # Input validation and error normalisation
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _error_result(code: str, detail: str) -> IPCResult:
+        """
+        Tạo IPCResult lỗi chuẩn hóa: status=ERROR, detail dạng "[MÃ_LỖI] mô tả".
+        Build a normalised error result: status=ERROR, detail like "[CODE] message".
+        """
+        return IPCResult(
+            status=IPCStatus.ERROR.value,
+            data=None,
+            success=False,
+            detail=f"[{code}] {detail}",
+        )
+
+    @staticmethod
+    def _check_timeout(timeout: Any) -> str | None:
+        """
+        Kiểm tra tham số timeout. Trả về mô tả lỗi, hoặc None nếu hợp lệ.
+        Validate `timeout`: return an error message, or None when it is valid.
+
+        Hợp lệ: None (chờ vô hạn) hoặc số >= 0 (không phải NaN, không vượt TIMEOUT_MAX).
+        """
+        if timeout is None:
+            return None
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            return f"timeout phải là số hoặc None, nhận {timeout!r}."
+        if timeout != timeout or timeout < 0:
+            return f"timeout không được âm hoặc NaN, nhận {timeout!r}."
+        if timeout > threading.TIMEOUT_MAX:
+            return f"timeout vượt giới hạn cho phép ({threading.TIMEOUT_MAX}s), nhận {timeout!r}."
+        return None
+
+    @staticmethod
+    def _check_packet(packet: MessagePacket) -> str | None:
+        """
+        Kiểm tra các trường của gói tin trước khi vào vùng khóa. Trả về mô tả lỗi, hoặc None.
+        Validate packet fields before taking the lock; return an error message, or None.
+
+        `priority` phải là số nguyên để so sánh được trong Priority Queue (tie-breaking),
+        `delay_ms` phải là số không âm, `message` phải là chuỗi.
+        """
+        if isinstance(packet.priority, bool) or not isinstance(packet.priority, int):
+            return f"priority phải là số nguyên, nhận {packet.priority!r}."
+        if (
+            isinstance(packet.delay_ms, bool)
+            or not isinstance(packet.delay_ms, (int, float))
+            or packet.delay_ms < 0
+        ):
+            return f"delay_ms phải là số không âm, nhận {packet.delay_ms!r}."
+        if not isinstance(packet.message, str):
+            return f"message phải là chuỗi, nhận {type(packet.message).__name__}."
+        return None
+
     def produce(
         self,
         item: Any,
@@ -142,6 +198,7 @@ class MessageQueue(IIPCMechanism):
     ) -> IPCResult:
         """
         Đẩy một thông điệp (MessagePacket) vào hàng đợi.
+        Put one message (MessagePacket) into the queue.
 
         Args:
             item: Gói tin MessagePacket hoặc dict/chuỗi (sẽ tự động đóng gói thành MessagePacket).
@@ -150,11 +207,27 @@ class MessageQueue(IIPCMechanism):
                 - 0.0: Non-blocking (cho GUI/step-by-step). Nếu đầy, trả về ngay "BLOCKED".
                 - > 0.0: Chờ tối đa `timeout` giây, hết hạn thì trả về "TIMEOUT".
                 - None: Blocking vô hạn (chờ cho tới khi có chỗ trống).
+                - Giá trị âm, NaN hoặc không phải số: trả về "ERROR" (INVALID_TIMEOUT).
 
         Returns:
-            IPCResult: Trạng thái SUCCESS (kèm gói tin đã gửi), BLOCKED hoặc TIMEOUT.
+            IPCResult: SUCCESS (kèm gói tin đã gửi), BLOCKED (Queue Overflow, non-blocking),
+            TIMEOUT (hết hạn chờ) hoặc ERROR (đầu vào sai / lỗi bất thường). Không ném ngoại lệ.
         """
-        packet = self._normalize_packet(item, process_id)
+        timeout_error = self._check_timeout(timeout)
+        if timeout_error is not None:
+            log_trace("ERROR_INVALID_TIMEOUT", f"Process: {process_id}")
+            return self._error_result("INVALID_TIMEOUT", timeout_error)
+
+        try:
+            packet = self._normalize_packet(item, process_id)
+        except (TypeError, ValueError, OverflowError) as error:
+            log_trace("ERROR_INVALID_PACKET", f"Process: {process_id}")
+            return self._error_result("INVALID_PACKET", f"Không đóng gói được gói tin: {error}")
+
+        packet_error = self._check_packet(packet)
+        if packet_error is not None:
+            log_trace("ERROR_INVALID_PACKET", f"Process: {process_id}")
+            return self._error_result("INVALID_PACKET", packet_error)
 
         # Tầng Guard bảo vệ biên cực đại: không cho phép payload vượt quá 100 ký tự (Kịch bản 7 Oracle)
         if len(packet.message) > 100:
@@ -165,6 +238,17 @@ class MessageQueue(IIPCMechanism):
                 detail=f"Payload vượt quá giới hạn 100 ký tự (độ dài: {len(packet.message)}). Bị chặn bởi tầng Guard.",
             )
 
+        try:
+            return self._run_produce(packet, process_id, timeout)
+        except Exception as error:  # noqa: BLE001 - mọi lỗi bất thường đều phải thành IPCResult
+            log_trace("ERROR_PRODUCE", f"Process: {process_id}")
+            return self._error_result("PRODUCE_FAILED", f"Lỗi bất thường khi gửi gói tin: {error}")
+
+    def _run_produce(self, packet: MessagePacket, process_id: str, timeout: float | None) -> IPCResult:
+        """
+        Thân xử lý của produce() sau khi đầu vào đã được kiểm tra hợp lệ.
+        Body of produce() once the input has been validated.
+        """
         # Xử lý mô phỏng độ trễ (Fault Injection - DELAY) trước khi vào hàng đợi
         sim_error = str(getattr(packet, "simulate_error", "NONE")).upper()
         delay_ms = getattr(packet, "delay_ms", 0)
@@ -186,7 +270,10 @@ class MessageQueue(IIPCMechanism):
                         return IPCResult(
                             status=IPCStatus.BLOCKED.value,
                             success=False,
-                            detail=f"Hàng đợi tin nhắn đã đầy ({len(self._queue)}/{self._capacity}).",
+                            detail=(
+                                f"[QUEUE_OVERFLOW] Hàng đợi tin nhắn đã đầy "
+                                f"({len(self._queue)}/{self._capacity})."
+                            ),
                         )
                     if timeout is not None:
                         remaining = timeout - (time.time() - start_time)
@@ -195,7 +282,7 @@ class MessageQueue(IIPCMechanism):
                             return IPCResult(
                                 status=IPCStatus.TIMEOUT.value,
                                 success=False,
-                                detail=f"Quá thời gian chờ ghi ({timeout}s) do hàng đợi đầy.",
+                                detail=f"[PRODUCE_TIMEOUT] Quá thời gian chờ ghi ({timeout}s) do hàng đợi đầy.",
                             )
                         with self._state_lock:
                             self._blocked_producers[process_id] = start_time
@@ -210,6 +297,11 @@ class MessageQueue(IIPCMechanism):
                 # Dù thành công hay thất bại, tiến trình không còn bị chặn
                 with self._state_lock:
                     self._blocked_producers.pop(process_id, None)
+
+            # Cùng một đối tượng gói tin bị gửi lại khi vẫn đang nằm trong hàng đợi: tạo bản sao
+            # để việc gán sequence không làm sai thứ tự của bản đang xếp hàng (HDH-95).
+            if any(queued is packet for queued in self._queue):
+                packet = replace(packet)
 
             # 2. Gán sequence (đang giữ mutex nên giá trị là duy nhất) rồi đưa gói tin vào hàng đợi
             packet.sequence = self._seq_counter
@@ -245,6 +337,7 @@ class MessageQueue(IIPCMechanism):
     ) -> IPCResult:
         """
         Lấy một thông điệp (MessagePacket) ra khỏi hàng đợi.
+        Take one message (MessagePacket) out of the queue.
 
         Args:
             process_id: Định danh tiến trình nhận.
@@ -252,9 +345,27 @@ class MessageQueue(IIPCMechanism):
                 - 0.0: Non-blocking (cho GUI/step-by-step). Nếu rỗng, trả về ngay "BLOCKED".
                 - > 0.0: Chờ tối đa `timeout` giây, hết hạn thì trả về "TIMEOUT".
                 - None: Blocking vô hạn (chờ cho tới khi có tin nhắn mới).
+                - Giá trị âm, NaN hoặc không phải số: trả về "ERROR" (INVALID_TIMEOUT).
 
         Returns:
-            IPCResult: Trạng thái SUCCESS (kèm gói tin lấy ra), BLOCKED hoặc TIMEOUT.
+            IPCResult: SUCCESS (kèm gói tin lấy ra), BLOCKED (Queue Underflow, non-blocking),
+            TIMEOUT (hết hạn chờ) hoặc ERROR (đầu vào sai / lỗi bất thường). Không ném ngoại lệ.
+        """
+        timeout_error = self._check_timeout(timeout)
+        if timeout_error is not None:
+            log_trace("ERROR_INVALID_TIMEOUT", f"Process: {process_id}")
+            return self._error_result("INVALID_TIMEOUT", timeout_error)
+
+        try:
+            return self._run_consume(process_id, timeout)
+        except Exception as error:  # noqa: BLE001 - mọi lỗi bất thường đều phải thành IPCResult
+            log_trace("ERROR_CONSUME", f"Process: {process_id}")
+            return self._error_result("CONSUME_FAILED", f"Lỗi bất thường khi nhận gói tin: {error}")
+
+    def _run_consume(self, process_id: str, timeout: float | None) -> IPCResult:
+        """
+        Thân xử lý của consume() sau khi timeout đã được kiểm tra hợp lệ.
+        Body of consume() once `timeout` has been validated.
         """
         start_time = time.time()
 
@@ -267,7 +378,7 @@ class MessageQueue(IIPCMechanism):
                         return IPCResult(
                             status=IPCStatus.BLOCKED.value,
                             success=False,
-                            detail="Hàng đợi tin nhắn rỗng, không có gói tin nào.",
+                            detail="[QUEUE_UNDERFLOW] Hàng đợi tin nhắn rỗng, không có gói tin nào.",
                         )
                     if timeout is not None:
                         remaining = timeout - (time.time() - start_time)
@@ -276,7 +387,7 @@ class MessageQueue(IIPCMechanism):
                             return IPCResult(
                                 status=IPCStatus.TIMEOUT.value,
                                 success=False,
-                                detail=f"Quá thời gian chờ đọc ({timeout}s) do hàng đợi rỗng.",
+                                detail=f"[CONSUME_TIMEOUT] Quá thời gian chờ đọc ({timeout}s) do hàng đợi rỗng.",
                             )
                         with self._state_lock:
                             self._blocked_consumers[process_id] = start_time
@@ -382,6 +493,7 @@ class MessageQueue(IIPCMechanism):
                 message=str(item.get("message", "")),
                 delay_ms=int(item.get("delay_ms", 0)),
                 priority=int(item.get("priority", 0)),
+                simulate_error=str(item.get("simulate_error") or "NONE").upper(),
             )
         # Nếu item là chuỗi hoặc dữ liệu khác
         return MessagePacket(
