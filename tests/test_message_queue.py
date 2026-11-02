@@ -1,6 +1,6 @@
 """
 Unit Test: test_message_queue.py
-Kiểm thử toàn diện module Message Queue theo yêu cầu Jira HDH-14, 15, 27, 28, 29, 88.
+Kiểm thử toàn diện module Message Queue theo yêu cầu Jira HDH-14, 15, 27, 28, 29, 88, 95.
 Đảm bảo kiểm tra đầy đủ: FIFO, Priority, Tie-breaking, Blocking, Non-blocking, Timeout, và get_state().
 """
 
@@ -250,6 +250,130 @@ class TestBlockedState(unittest.TestCase):
             self.assertIn(key, state)
         self.assertEqual(state["mutex"], 1)
         self.assertEqual((state["empty"], state["full"]), (3, 0))
+
+
+class TestExceptionHandling(unittest.TestCase):
+    """HDH-95: bắt lỗi Timeout, Queue Overflow/Underflow, đầu vào sai và tie-breaking."""
+
+    def test_overflow_non_blocking_returns_blocked_immediately(self) -> None:
+        """Queue Overflow ở chế độ non-blocking: trả về BLOCKED ngay, detail ghi rõ QUEUE_OVERFLOW."""
+        mq = MessageQueue(capacity=1)
+        _produce_named(mq, "A")
+        start = time.time()
+        result = mq.produce("B", timeout=0.0)
+        self.assertLess(time.time() - start, 0.2)
+        self.assertEqual(result.status, IPCStatus.BLOCKED.value)
+        self.assertIn("QUEUE_OVERFLOW", result.detail)
+        self.assertEqual(mq.count, 1)
+
+    def test_underflow_non_blocking_returns_blocked_immediately(self) -> None:
+        """Queue Underflow ở chế độ non-blocking: trả về BLOCKED ngay, detail ghi rõ QUEUE_UNDERFLOW."""
+        mq = MessageQueue(capacity=2)
+        start = time.time()
+        result = mq.consume(timeout=0.0)
+        self.assertLess(time.time() - start, 0.2)
+        self.assertEqual(result.status, IPCStatus.BLOCKED.value)
+        self.assertIn("QUEUE_UNDERFLOW", result.detail)
+
+    def test_consume_timeout_on_empty_queue(self) -> None:
+        """Consume có timeout trên hàng đợi rỗng trả về TIMEOUT và dọn trạng thái chặn."""
+        mq = MessageQueue(capacity=2)
+        start = time.time()
+        result = mq.consume(process_id="C9", timeout=0.1)
+        self.assertGreaterEqual(time.time() - start, 0.09)
+        self.assertEqual(result.status, IPCStatus.TIMEOUT.value)
+        self.assertEqual(mq.get_state()["blocked_processes"], [])
+
+    def test_invalid_timeout_returns_error(self) -> None:
+        """timeout âm / NaN / sai kiểu trả về ERROR thay vì ném ngoại lệ hoặc treo."""
+        mq = MessageQueue(capacity=2)
+        for bad in (-1, -0.5, float("nan"), "abc", True):
+            with self.subTest(timeout=bad):
+                self.assertEqual(mq.produce("X", timeout=bad).status, IPCStatus.ERROR.value)
+                self.assertEqual(mq.consume(timeout=bad).status, IPCStatus.ERROR.value)
+        self.assertTrue(mq.is_empty)
+
+    def test_invalid_packet_returns_error(self) -> None:
+        """Gói tin có priority/delay_ms sai kiểu hoặc dict lỗi trả về ERROR, hàng đợi không đổi."""
+        mq = MessageQueue(capacity=3, is_priority=True)
+        bad_items = (
+            {"message": "x", "priority": "cao"},
+            {"message": "x", "delay_ms": "abc"},
+            {"message": "x", "delay_ms": -5},
+            MessagePacket(id=1, sender="P", receiver="C", message="x", priority="high"),
+        )
+        for item in bad_items:
+            with self.subTest(item=item):
+                result = mq.produce(item, timeout=0.0)
+                self.assertEqual(result.status, IPCStatus.ERROR.value)
+                self.assertFalse(result.success)
+        self.assertTrue(mq.is_empty)
+
+    def test_payload_over_100_chars_rejected(self) -> None:
+        """Guard: payload 101 ký tự bị từ chối, 100 ký tự được chấp nhận."""
+        mq = MessageQueue(capacity=3)
+        self.assertEqual(mq.produce("a" * 101, timeout=0.0).status, IPCStatus.ERROR.value)
+        self.assertEqual(mq.produce("a" * 100, timeout=0.0).status, IPCStatus.SUCCESS.value)
+
+    def test_error_does_not_break_later_operations(self) -> None:
+        """Sau một lần lỗi, hàng đợi vẫn hoạt động bình thường."""
+        mq = MessageQueue(capacity=2)
+        mq.produce("x", timeout=-1)
+        _produce_named(mq, "A")
+        self.assertEqual(_consume_all_names(mq), ["A"])
+
+    def test_simulate_error_kept_from_dict(self) -> None:
+        """simulate_error trong dict không bị mất khi đóng gói thành MessagePacket."""
+        mq = MessageQueue(capacity=2)
+        result = mq.produce({"message": "m", "simulate_error": "checksum"}, timeout=0.0)
+        self.assertEqual(result.data.simulate_error, "CHECKSUM")
+
+    def test_resend_same_packet_object_keeps_order(self) -> None:
+        """Gửi lại cùng một đối tượng gói tin khi nó còn trong hàng đợi không làm sai thứ tự tie-breaking."""
+        mq = MessageQueue(capacity=5, is_priority=True)
+        pkt = MessagePacket(id=1, sender="P", receiver="C", message="dup", priority=3)
+        other = MessagePacket(id=2, sender="P", receiver="C", message="other", priority=3)
+        mq.produce(pkt, timeout=0.0)
+        mq.produce(other, timeout=0.0)
+        mq.produce(pkt, timeout=0.0)
+        self.assertEqual(_consume_all_names(mq), ["dup", "other", "dup"])
+
+    def test_concurrent_same_priority_is_fifo_per_producer(self) -> None:
+        """Nhiều Producer cùng priority chạy song song: sequence duy nhất, mỗi Producer giữ đúng thứ tự gửi."""
+        mq = MessageQueue(capacity=200, is_priority=True)
+
+        def worker(name: str) -> None:
+            for i in range(25):
+                mq.produce({"message": f"{name}{i}", "priority": 1}, process_id=name, timeout=None)
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in "ABCD"]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        names = _consume_all_names(mq)
+        self.assertEqual(len(names), 100)
+        for n in "ABCD":
+            own = [int(x[1:]) for x in names if x[0] == n]
+            self.assertEqual(own, list(range(25)))
+
+    def test_blocked_producer_woken_by_consumer_keeps_tie_order(self) -> None:
+        """Producer bị chặn được đánh thức vẫn xếp sau các gói tin cùng priority đã có trong hàng đợi."""
+        mq = MessageQueue(capacity=2, is_priority=True)
+        _produce_named(mq, "A", 1)
+        _produce_named(mq, "B", 1)
+
+        def late_consume() -> None:
+            time.sleep(0.2)
+            mq.consume(process_id="C", timeout=0.0)
+
+        th = threading.Thread(target=late_consume)
+        th.start()
+        result = mq.produce({"message": "C1", "priority": 1}, process_id="P3", timeout=2.0)
+        th.join()
+        self.assertTrue(result.success)
+        self.assertEqual(_consume_all_names(mq), ["B", "C1"])
 
 
 if __name__ == "__main__":
