@@ -132,9 +132,10 @@ class TestSharedMemory(unittest.TestCase):
     def test_events_capture_actual_locked_write_and_read_snapshots(self):
         written = []
         self.shm.produce({"id": 1, "message": "Hello"}, "P1", events=written)
-        self.assertEqual([event["phase"] for event in written], ["LOCKED", "WRITTEN"])
+        self.assertEqual([event["phase"] for event in written], ["LOCKED", "WRITING", "WRITTEN"])
         self.assertIsNone(written[0]["snapshot"]["buffer"][0])
-        self.assertEqual(written[1]["snapshot"]["buffer"][0]["id"], 1)
+        self.assertIsNone(written[1]["snapshot"]["buffer"][0])
+        self.assertEqual(written[2]["snapshot"]["buffer"][0]["id"], 1)
         for event in written:
             self.assertEqual(event["snapshot"]["mutex"], 0)
             self.assertEqual(event["snapshot"]["mutex_holder"], "P1")
@@ -146,7 +147,7 @@ class TestSharedMemory(unittest.TestCase):
         self.assertIsNone(self.shm.get_state()["buffer"][0])
         self.assertEqual(self.shm.get_state()["mutex"], 1)
         # Các snapshot lịch sử không bị xóa khi Core thay đổi buffer.
-        self.assertEqual(written[1]["snapshot"]["count"], 1)
+        self.assertEqual(written[2]["snapshot"]["count"], 1)
 
     def test_blocked_operation_has_no_locked_animation(self):
         events = []
