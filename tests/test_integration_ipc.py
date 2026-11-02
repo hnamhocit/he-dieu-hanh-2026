@@ -3,6 +3,11 @@ import csv
 import sys
 import time
 
+THU_MUC_TESTS = os.path.dirname(os.path.abspath(__file__))
+THU_MUC_GOC = os.path.abspath(os.path.join(THU_MUC_TESTS, ".."))
+if THU_MUC_GOC not in sys.path:
+    sys.path.insert(0, THU_MUC_GOC)
+
 try:
     from src.core.shared_memory import SharedMemory
     from src.core.message_queue import MessageQueue
