@@ -1,4 +1,4 @@
-"""Chạy CSV tuần tự và phát lại sự kiện Core bằng QTimer.
+"""Chạy Core ở worker và phát lại sự kiện tuần tự bằng QTimer.
 
 BLOCKED được ghi nhận rồi chuyển bước kế tiếp, không tự retry.
 Không tạo OS process; animation không giữ mutex hoặc tính vào latency IPC.
@@ -8,10 +8,48 @@ from collections import deque
 from datetime import datetime
 from time import perf_counter
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal, pyqtSlot
 
 from src.core.message_queue import MessageQueue
 from src.core.shared_memory import SharedMemory
+
+
+class _StepSignals(QObject):
+    finished = pyqtSignal(dict)
+
+
+class _IPCStep(QRunnable):
+    """Chỉ gọi Core và thu thập snapshot; không truy cập widget từ worker."""
+
+    def __init__(self, core, step, generation):
+        super().__init__()
+        self.core = core
+        self.step = dict(step)
+        self.generation = generation
+        self.signals = _StepSignals()
+
+    @pyqtSlot()
+    def run(self):
+        started = perf_counter()
+        events = []
+        outcome = {
+            "generation": self.generation, "step": self.step, "events": events,
+            "timestamp": datetime.now().astimezone().isoformat(sep=" ", timespec="milliseconds"),
+        }
+        try:
+            kwargs = {"process_id": self.step["sender"], "timeout": 0.0}
+            if isinstance(self.core, SharedMemory):
+                kwargs["events"] = events
+            if self.step["action"] in ("PRODUCE", "SEND"):
+                # QTimer đã xử lý delay_ms của CSV; tránh áp dụng lại trong Core.
+                outcome["result"] = self.core.produce(dict(self.step, delay_ms=0), **kwargs)
+            else:
+                outcome["result"] = self.core.consume(**kwargs)
+            outcome["snapshot"] = self.core.get_state()
+        except Exception as error:
+            outcome["error"] = str(error)
+        outcome["latency_ms"] = (perf_counter() - started) * 1000
+        self.signals.finished.emit(outcome)
 
 
 class SimulationController(QObject):
@@ -26,6 +64,7 @@ class SimulationController(QObject):
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._advance)
+        self._workers = {}
         self.reset()
 
     def start(self, messages, configuration):
@@ -77,36 +116,38 @@ class SimulationController(QObject):
             self._arm(self._execute_step, self.steps[self.index]["delay_ms"])
 
     def _execute_step(self):
-        step = self.steps[self.index]
-        timestamp = datetime.now().astimezone().isoformat(sep=" ", timespec="milliseconds")
-        started = perf_counter()
-        events = []
-        try:
-            kwargs = {"process_id": step["sender"], "timeout": 0.0}
-            if isinstance(self.core, SharedMemory):
-                kwargs["events"] = events
-            if step["action"] in ("PRODUCE", "SEND"):
-                result = self.core.produce(dict(step), **kwargs)
-            else:
-                result = self.core.consume(**kwargs)
-            snapshot = self.core.get_state()
-        except Exception as error:
+        self._in_flight = True
+        worker = _IPCStep(self.core, self.steps[self.index], self._generation)
+        self._workers[self._generation] = worker
+        worker.signals.finished.connect(self._on_step_executed)
+        QThreadPool.globalInstance().start(worker)
+
+    @pyqtSlot(dict)
+    def _on_step_executed(self, outcome):
+        generation = outcome["generation"]
+        self._workers.pop(generation, None)
+        if generation != self._generation or not self.running:
+            return
+        self._in_flight = False
+        step = outcome["step"]
+        if "error" in outcome:
             self.trace_recorded.emit({
-                "timestamp": timestamp, "step_id": step["id"],
+                "timestamp": outcome["timestamp"], "step_id": step["id"],
                 "process": step["sender"], "action": step["action"],
                 "mechanism": self.mechanism_name, "status": "ERROR",
-                "latency_ms": (perf_counter() - started) * 1000,
-                "detail": str(error),
+                "latency_ms": outcome["latency_ms"], "detail": outcome["error"],
             })
-            self._finish(f"Lỗi ở bước {step['id']}: {error}")
+            if generation == self._generation and self.running:
+                self._finish(f"Lỗi ở bước {step['id']}: {outcome['error']}")
             return
         self._pending = {
-            "step": dict(step), "result": result, "snapshot": snapshot,
+            "step": step, "result": outcome["result"], "snapshot": outcome["snapshot"],
             "completed": self.index + 1, "total": len(self.steps),
-            "latency_ms": (perf_counter() - started) * 1000,
-            "timestamp": timestamp,
+            "latency_ms": outcome["latency_ms"], "timestamp": outcome["timestamp"],
         }
-        self._frames = deque(events)
+        self._frames = deque(outcome["events"])
+        self._callback = self._play_next_frame
+        self.remaining_delay = 0
         self._play_next_frame()
 
     def _play_next_frame(self):
@@ -149,7 +190,8 @@ class SimulationController(QObject):
     def resume(self):
         if self.running and self.paused:
             self.paused = False
-            self.timer.start(self.remaining_delay)
+            if not self._in_flight:
+                self.timer.start(self.remaining_delay)
 
     def reset(self):
         self._generation = getattr(self, "_generation", 0) + 1
@@ -163,6 +205,7 @@ class SimulationController(QObject):
         self.remaining_delay = 0
         self._frames = deque()
         self._pending = None
+        self._in_flight = False
         self._callback = self._schedule_next
 
     def _finish(self, message):

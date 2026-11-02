@@ -1,13 +1,14 @@
 """Kiểm tra trình tự IPC, animation, pause/reset và lỗi tại ranh giới bước."""
 
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt6.QtCore import QElapsedTimer
+    from PyQt6.QtCore import QElapsedTimer, QThreadPool, QTimer
     from PyQt6.QtTest import QSignalSpy, QTest
     from PyQt6.QtWidgets import QApplication
     from src.gui.simulation_controller import SimulationController
@@ -39,6 +40,8 @@ class TestSimulationController(unittest.TestCase):
 
     def tearDown(self):
         self.controller.reset()
+        QThreadPool.globalInstance().waitForDone(5000)
+        self.app.processEvents()
 
     def wait_until(self, predicate):
         elapsed = QElapsedTimer()
@@ -68,7 +71,7 @@ class TestSimulationController(unittest.TestCase):
         self.assertEqual([row[0]["snapshot"]["count"] for row in self.completed], [1, 2, 2, 1, 0, 0, 1])
         self.assertEqual([row[0]["status"] for row in self.traces],
                          ["SUCCESS", "SUCCESS", "BLOCKED", "SUCCESS", "SUCCESS", "BLOCKED", "SUCCESS"])
-        self.assertEqual(len(self.frames), 10)
+        self.assertEqual(len(self.frames), 13)
         self.assertEqual(len(self.traces), 7)
         self.assertEqual(self.controller.core.get_state()["buffer"][0]["id"], 7)
 
@@ -83,7 +86,7 @@ class TestSimulationController(unittest.TestCase):
         self.controller.resume()
         self.wait_until(lambda: not self.controller.running)
         self.assertEqual([row[0]["phase"] for row in self.frames],
-                         ["LOCKED", "WRITTEN", "LOCKED", "READING"])
+                         ["LOCKED", "WRITING", "WRITTEN", "LOCKED", "READING"])
         self.assertEqual(len(self.traces), 2)
 
     def test_reset_mid_animation_cancels_old_frames_and_allows_restart(self):
@@ -150,6 +153,79 @@ class TestSimulationController(unittest.TestCase):
         self.wait_until(lambda: len(self.frames) == 1)
         self.assertEqual(self.frames[0][0]["snapshot"]["mutex"], 0)
         self.assertEqual(self.controller.core.get_state()["mutex"], 1)
+
+    def test_csv_delay_is_not_applied_again_inside_core(self):
+        from src.core.shared_memory import SharedMemory
+        produce = SharedMemory.produce
+        delays = []
+
+        def record_delay(core, item, **kwargs):
+            delays.append(item["delay_ms"])
+            return produce(core, item, **kwargs)
+
+        with patch.object(SharedMemory, "produce", record_delay):
+            self.start([step(1, "PRODUCE", 20)])
+            self.wait_until(lambda: not self.controller.running)
+        self.assertEqual(delays, [0])
+        self.assertEqual(self.completed[0][0]["step"]["delay_ms"], 20)
+
+    def test_slow_core_keeps_ui_responsive_and_pause_defers_playback(self):
+        from src.core.shared_memory import SharedMemory
+        produce = SharedMemory.produce
+        entered, release = threading.Event(), threading.Event()
+        threads = []
+
+        def slow_produce(core, *args, **kwargs):
+            threads.append(threading.get_ident())
+            entered.set()
+            release.wait(3)
+            return produce(core, *args, **kwargs)
+
+        with patch.object(SharedMemory, "produce", slow_produce):
+            try:
+                self.start([step(1, "PRODUCE")])
+                self.wait_until(entered.is_set)
+                ticks = []
+                QTimer.singleShot(0, lambda: ticks.append(True))
+                self.wait_until(lambda: bool(ticks))
+                self.assertNotEqual(threads[0], threading.get_ident())
+                self.controller.pause()
+                release.set()
+                self.wait_until(lambda: self.controller._pending is not None)
+                self.assertEqual(len(self.frames), 0)
+                self.assertEqual(len(self.traces), 0)
+                self.controller.resume()
+                self.wait_until(lambda: not self.controller.running)
+                self.assertEqual(len(threads), 1)
+                self.assertEqual(len(self.completed), 1)
+            finally:
+                release.set()
+
+    def test_reset_discards_in_flight_result_after_restart(self):
+        from src.core.shared_memory import SharedMemory
+        produce = SharedMemory.produce
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_first(core, item, **kwargs):
+            if item["id"] == 1:
+                entered.set()
+                release.wait(3)
+            return produce(core, item, **kwargs)
+
+        with patch.object(SharedMemory, "produce", slow_first):
+            try:
+                self.start([step(1, "PRODUCE")])
+                self.wait_until(entered.is_set)
+                self.controller.reset()
+                self.start([step(2, "PRODUCE")])
+                self.wait_until(lambda: not self.controller.running)
+                release.set()
+                self.wait_until(lambda: not self.controller._workers)
+                self.assertEqual([row[0]["step"]["id"] for row in self.completed], [2])
+                self.assertEqual(len(self.traces), 1)
+                self.assertEqual(self.controller.core.get_state()["buffer"][0]["id"], 2)
+            finally:
+                release.set()
 
 
 if __name__ == "__main__":

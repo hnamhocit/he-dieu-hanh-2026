@@ -12,7 +12,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 try:
     from PyQt6.QtCore import QElapsedTimer, QEvent, QThreadPool, QTimer, Qt
-    from PyQt6.QtGui import QFont, QFontDatabase
+    from PyQt6.QtGui import QFont, QFontDatabase, QMouseEvent
     from PyQt6.QtTest import QSignalSpy, QTest
     from PyQt6.QtWidgets import QApplication
     from src.gui.main_window import MainWindow, UIState
@@ -233,6 +233,75 @@ class TestMainWindow(unittest.TestCase):
     def test_export_failure_is_reported_without_exception(self):
         self.assertFalse(self.window.export_trace(self.directory / "missing" / "trace.csv"))
         self.assertIn("Không thể xuất trace", self.window.statusBar().currentMessage())
+
+    def test_trace_status_colors_and_export_preserve_content(self):
+        expected = [("SUCCESS", "#dcfce7"), ("BLOCKED", "#fef3c7"),
+                    ("TIMEOUT", "#ffedd5"), ("ERROR", "#fee2e2"),
+                    ("CUSTOM", "#f1f5f9")]
+        rows = []
+        for row, (status, background) in enumerate(expected):
+            values = [row + 1, "10:00:00", 1, "P1", "SEND", "SHARED_MEMORY",
+                      status, "0.100", 'Nội dung, "Unicode"\nDòng hai']
+            rows.append([str(value) for value in values])
+            self.window.append_trace(values)
+            for column, value in enumerate(values):
+                item = self.window.trace_table.item(row, column)
+                self.assertEqual(item.background().color().name(), background)
+                self.assertEqual(item.text(), str(value))
+                self.assertEqual(item.toolTip(), str(value))
+        path = self.directory / "statuses.csv"
+        self.assertTrue(self.window.export_trace(path))
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            self.assertEqual(list(csv.reader(stream)), [list(self.window.TRACE_COLUMNS)] + rows)
+
+    def test_writing_frame_then_snapshot_clears_transient_state(self):
+        widget = self.window.buffer_slots
+        widget.set_frame({"phase": "WRITING", "slot_index": 0,
+                          "snapshot": {"capacity": 2, "buffer": [None, None]}})
+        self.assertEqual(widget.slot_state(0), "WRITING")
+        self.assertEqual(widget.slot_state(1), "EMPTY")
+        widget.set_snapshot({"capacity": 2, "buffer": [{"id": 1}, None]})
+        self.assertEqual(widget.slot_state(0), "WRITTEN")
+        self.assertIsNone(widget.phase)
+
+    def test_hover_after_buffer_shrinks_before_repaint_is_safe(self):
+        widget = self.window.buffer_slots
+        widget.resize(400, 108)
+        for name, update in (
+            ("capacity", lambda: widget.set_capacity(2)),
+            ("snapshot", lambda: widget.set_snapshot({"capacity": 2, "buffer": [None, None]})),
+        ):
+            with self.subTest(update=name):
+                buffer = [None] * 1024
+                buffer[1023] = {"id": 1, "message": "Hello"}
+                widget.set_frame({"phase": "READING", "slot_index": 1023,
+                                  "snapshot": {"capacity": 1024, "buffer": buffer}})
+                self.assertFalse(widget.grab().isNull())
+                position = widget._hit_boxes[-1][0].center()
+                event = QMouseEvent(QEvent.Type.MouseMove, position, position,
+                                    Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                                    Qt.KeyboardModifier.NoModifier)
+                widget.mouseMoveEvent(event)
+                self.assertIn("Ô 1023", widget.toolTip())
+                update()
+                widget.mouseMoveEvent(event)
+                self.assertEqual(widget.toolTip(), "")
+                self.assertFalse(widget.grab().isNull())
+
+    def test_trace_follows_tail_without_interrupting_history_reading(self):
+        self.window.show()
+        self.app.processEvents()
+        values = [1, "10:00:00", 1, "P1", "SEND", "SHARED_MEMORY", "SUCCESS", 0, "OK"]
+        for _ in range(60):
+            self.window.append_trace(values)
+        self.app.processEvents()
+        scrollbar = self.window.trace_table.verticalScrollBar()
+        self.assertGreater(scrollbar.maximum(), 0)
+        self.assertEqual(scrollbar.value(), scrollbar.maximum())
+        scrollbar.setValue(0)
+        self.window.append_trace(values)
+        self.app.processEvents()
+        self.assertEqual(scrollbar.value(), 0)
 
     def test_capacity_updates_visualization(self):
         self.window.buffer_spin.setValue(1024)

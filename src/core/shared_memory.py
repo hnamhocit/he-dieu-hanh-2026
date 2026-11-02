@@ -257,6 +257,8 @@ class SharedMemory(IIPCMechanism):
             log_trace("LOCK_ACQUIRE", f"Process: {process_id}")
             self._record_event(events, "LOCKED", slot_index, process_id)
 
+            self._record_event(events, "WRITING", slot_index, process_id)
+
             # Mô phỏng Fault Injector: CHECKSUM nếu được cấu hình
             stored_item = item
             if sim_error == "CHECKSUM":
