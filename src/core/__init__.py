@@ -53,6 +53,13 @@ from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 from src.core.fault_injector import FaultInjector
 from src.core.shared_memory import SharedMemory
 from src.core.message_queue import MessagePacket, MessageQueue, MessageQueueCore
+from src.core.ipc_manager import (
+    IPCManager,
+    LifecycleState,
+    ProcessDescriptor,
+    ProcessRole,
+    ProcessStatus,
+)
 
 __all__ = [
     "IIPCMechanism",
@@ -63,6 +70,11 @@ __all__ = [
     "MessagePacket",
     "MessageQueueCore",
     "FaultInjector",
+    "IPCManager",
+    "LifecycleState",
+    "ProcessDescriptor",
+    "ProcessRole",
+    "ProcessStatus",
     "log_trace",
     "init_trace_logger",
     "TRACE_FILE_PATH",
