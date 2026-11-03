@@ -1,0 +1,52 @@
+{
+  "owner": "hnamhocit",
+  "repo": "he-dieu-hanh-2026",
+  "taskSeq": 1,
+  "tasks": [
+    {
+      "id": "HEDIE-1",
+      "title": "Khởi tạo dự án he-dieu-hanh-2026 & cấu trúc công việc",
+      "description": "### Mục tiêu ban đầu\n\n- Khởi tạo dự án và thiết lập môi trường phát triển\n- Lên danh sách các tính năng cốt lõi\n- Cập nhật file `.gitvn/tasks.json` và `.gitvn/tasks/*.md`",
+      "status": "in_progress",
+      "priority": "high",
+      "assignee": {
+        "login": "hnamhocit",
+        "name": "hnamhocit"
+      },
+      "reporter": {
+        "login": "hnamhocit",
+        "name": "hnamhocit"
+      },
+      "sprintId": "sprint-1",
+      "storyPoints": 3,
+      "createdAt": "2026-11-03T11:22:24.670Z",
+      "updatedAt": "2026-11-03T11:22:24.670Z"
+    }
+  ],
+  "sprints": [
+    {
+      "id": "sprint-1",
+      "name": "Sprint 1 - Bắt đầu dự án",
+      "goal": "Kế hoạch phát triển cho he-dieu-hanh-2026",
+      "startDate": "2026-11-03",
+      "endDate": "2026-11-17",
+      "status": "active",
+      "createdAt": "2026-11-03T11:22:24.670Z"
+    }
+  ],
+  "permissions": {
+    "userRoles": {
+      "hnamhocit": "admin"
+    },
+    "defaultRole": "member",
+    "canManageSprint": [
+      "admin",
+      "pm"
+    ],
+    "canCreateBacklog": [
+      "admin",
+      "pm",
+      "member"
+    ]
+  }
+}
