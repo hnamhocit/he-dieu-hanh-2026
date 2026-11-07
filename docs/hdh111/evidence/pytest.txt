@@ -1,0 +1,17 @@
+HDH-111 — Kết quả kiểm thử dùng làm bằng chứng cho tài liệu GUI
+Ngày kiểm tra: 2026-11-07 (Asia/Ho_Chi_Minh)
+Source: b1ae0e6a292005fec82e82d18bb80c6411dadda1 (HDH-110 / PR #53)
+Source được sao chép từ working tree sạch ở commit trên vào /tmp/hdh111-source-b1ae0e6.
+Python và thư viện: xem observations.json.
+
+Lệnh đã chạy, từ thư mục source:
+MPLCONFIGDIR=/tmp/hdh111-matplotlib /tmp/hdh110-venv/bin/python -m pytest tests/ -q
+
+Đầu ra pytest:
+.......................................... [ 30%]
+........................................... [ 60%]
+.......................................................         [100%]
+140 passed, 68 subtests passed in 9.19s
+
+Không có failed/skipped trong kết quả trên. Đây là kiểm thử tự động với GUI offscreen;
+không xác nhận kiểm thử thủ công trên Windows hoặc các hộp thoại native của OS.
