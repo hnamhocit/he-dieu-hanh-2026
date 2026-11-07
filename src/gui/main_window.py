@@ -14,12 +14,13 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMainWindow, QProgressBar, QPushButton, QScrollArea, QSpinBox,
-    QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from src.gui.styles import STYLESHEET, TRACE_DEFAULT_COLORS, TRACE_STATUS_COLORS
 from src.gui.simulation_controller import SimulationController
 from src.gui.widgets import BufferChart, BufferSlots
+from src.gui.benchmark_tab import BenchmarkTab
 from src.utils.csv_parser import CSVParser
 
 
@@ -112,10 +113,14 @@ class MainWindow(QMainWindow):
         self.statusBar().clearMessage()
 
     def _build_layout(self):
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.setCentralWidget(scroll)
+        self.tabs.addTab(scroll, "Mô phỏng IPC")
+        self.benchmark_tab = BenchmarkTab(self)
+        self.tabs.addTab(self.benchmark_tab, "Benchmark && Analysis")
         page = QWidget()
         page.setObjectName("page")
         scroll.setWidget(page)
@@ -635,6 +640,7 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def closeEvent(self, event):
+        self.benchmark_tab.cancel()
         self.controller.reset()
         super().closeEvent(event)
 
