@@ -1,4 +1,4 @@
-## Bảng tính tay (Oracle) cho 3 kịch bản kiểm thử mẫu
+## Bảng tính tay (Oracle) cho các kịch bản kiểm thử mẫu
 
 Để kiểm tra xem code chạy có đúng không, nhóm em tiến hành tính tay trước trạng thái của bộ đệm (Buffer) và các biến khóa (Mutex/Semaphore) qua từng bước chạy. 
 
@@ -113,3 +113,28 @@
 | 3 | C vào rút dữ liệu tin | `[-, Tin_2, -, -]` | `in=2`, **`out=1`** | **`(1, 3, 1)`** | Không | Con trỏ đọc `out` dịch tiến theo mảng vòng tuần tự bắt đầu từ ô số 0 $\rightarrow$ Lấy trúng chính xác **`Tin_1`** ra trước. Đây chính là việc áp dụng quy luật phụ **FIFO (vào trước ra trước)** khi gặp trường hợp trùng độ ưu tiên. |
 
 **Kết quả kỳ vọng:** Hệ thống giải quyết tranh chấp lập lịch trơn tru, nhận dữ liệu ra theo đúng trình tự thời gian bấm chuông xếp hàng (`Tin_1` xuất xưởng trước, `Tin_2` xuất xưởng sau).
+
+---
+
+### Kịch bản 9: Lỗi Format - Gói tin đầu vào sai quy cách định dạng
+* **Mô tả:** Tiến trình sản xuất (P) đẩy vào một gói tin bị lỗi (ví dụ như thiếu trường dữ liệu hoặc bị tính sai mã Checksum) từ file `invalid_format.csv` để xem hệ thống xử lý thế nào.
+
+| Bước | Hành động | Trạng thái Buffer | Con trỏ `in` / `out` | Biến Semaphore `(mutex, empty, full)` | Có ai bị nghẽn (Blocked) không? | Giải thích chi tiết từng bước |
+| :---: | :--- | :---: | :---: | :---: | :---: | :--- |
+| 0 | Ban đầu | `[-, -, -, -]` | `in=0, out=0` | `(1, 4, 0)` | Không | Bộ đệm đang trống rỗng hoàn toàn, chưa có gì bên trong. |
+| 1 | P đẩy gói lỗi Format | `[-, -, -, -]` | `in=0, out=0` | `(1, 4, 0)` | Không | Bộ đọc file (`csv_parser.py`) quét qua thấy gói tin sai cấu trúc. Hệ thống hủy gói tin luôn chứ không chạy lệnh nạp vào bộ đệm, các biến Semaphore giữ nguyên. |
+
+**Kết quả kỳ vọng:** Hệ thống từ chối nhận gói lỗi an toàn, không thay đổi vị trí con trỏ và tuyệt đối không làm đơ hay sập chương trình.
+
+---
+
+### Kịch bản 10: Ngắt đột ngột - Tiến trình đang gửi dữ liệu thì bị sập (Crash)
+* **Mô tả:** Tiến trình P đang chiếm quyền khóa và đẩy dữ liệu vào ô nhớ thì đùng một cái bị sập nguồn hoặc ngắt kết nối đột ngột khi gói tin mới truyền được một nửa.
+
+| Bước | Hành động | Trạng thái Buffer | Con trỏ `in` / `out` | Biến Semaphore `(mutex, empty, full)` | Có ai bị nghẽn (Blocked) không? | Giải thích chi tiết từng bước |
+| :---: | :--- | :---: | :---: | :---: | :---: | :--- |
+| 0 | Ban đầu | `[-, -, -, -]` | `in=0, out=0` | `(1, 4, 0)` | Không | Bộ đệm ban đầu đang trống rỗng sạch sẽ. |
+| 1 | P đang truyền thì crash | `[M_treo, -, -, -]` | `in=0, out=0` | **`(0, 4, 0)`** | **Hệ thống bị treo tạm thời** | P đã khóa vùng nhớ (`mutex = 0`) nhưng đột ngột mất kết nối giữa chừng, làm dữ liệu bị kẹt và chưa kịp nhả khóa mở lại cho các tiến trình khác vào. |
+| 2 | Bộ hẹn giờ kích hoạt | `[-, -, -, -]` | `in=0, out=0` | **`(1, 4, 0)`** | Không | Chờ quá 300ms không thấy P phản hồi, bộ hẹn giờ tự động xóa gói lỗi `M_treo`, hoàn tác các biến và mở lại khóa `mutex = 1` để cứu hệ thống. |
+
+**Kết quả kỳ vọng:** Hệ thống tự động dọn dẹp dữ liệu kẹt và giải phóng khóa sau thời gian Timeout, đưa mọi thứ quay lại trạng thái bình thường ổn định.
