@@ -265,5 +265,28 @@ class TestSharedMemory(unittest.TestCase):
         self.assertTrue(shm.is_empty)
 
 
+class PerformanceTests(unittest.TestCase):
+    """Kiểm tra hiệu năng các thao tác cơ bản."""
+    
+    def test_operation_timings(self):
+        shm = SharedMemory(capacity=100)
+        test_sizes = [1, 10, 100, 1000]
+        
+        print("\n⏱️ Đo thời gian thao tác:")
+        for size in test_sizes:
+            # Đo produce
+            start = time.perf_counter()
+            for i in range(size):
+                shm.produce(f"msg_{i}")
+            produce_time = time.perf_counter() - start
+            
+            # Đo consume    
+            start = time.perf_counter()
+            for _ in range(size):
+                shm.consume()
+            consume_time = time.perf_counter() - start
+            
+            print(f"- Size {size}: produce={produce_time/size:.6f}s/op, consume={consume_time/size:.6f}s/op")
+
 if __name__ == "__main__":
     unittest.main()
