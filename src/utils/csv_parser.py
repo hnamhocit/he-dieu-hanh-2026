@@ -95,11 +95,17 @@ class CSVParser:
             raise ValueError(f"Dòng {line}, cột 'id': phải lớn hơn 0.")
 
         delay_ms = self._parse_int(row.get("delay_ms", "").strip() or "0", "delay_ms", line)
-        if delay_ms < 0:
-            raise ValueError(f"Dòng {line}, cột 'delay_ms': không được âm.")
+        if not 0 <= delay_ms <= 2_147_483_647:
+            raise ValueError(f"Dòng {line}, cột 'delay_ms': phải từ 0 đến 2147483647 ms.")
 
         priority = self._parse_int(row.get("priority", "").strip() or "0", "priority", line)
+        if not 0 <= priority <= 5:
+            raise ValueError(f"Dòng {line}, cột 'priority': phải từ 0 đến 5.")
         simulate_error = row.get("simulate_error", "").strip().upper() or "NONE"
+        if simulate_error not in {"NONE", "DELAY", "CHECKSUM"}:
+            raise ValueError(
+                f"Dòng {line}, cột 'simulate_error': phải là NONE, DELAY hoặc CHECKSUM."
+            )
         return SimulationStep(
             step_id, action, sender, receiver, message, delay_ms, priority, simulate_error
         )

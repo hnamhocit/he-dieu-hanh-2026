@@ -76,9 +76,22 @@ class TestCSVParser(unittest.TestCase):
         steps = self.parse_text(stream.getvalue(), encoding="utf-8-sig")
         self.assertEqual(steps[0].message, message)
 
-    def test_whitespace_and_negative_priority(self) -> None:
-        steps = self.parse_text(HEADER + " 1 , SEND , P1 , C1 , payload , 5 ,-2\n")
-        self.assertEqual(steps, [SimulationStep(1, "SEND", "P1", "C1", " payload ", 5, -2)])
+    def test_whitespace_and_priority_boundaries(self) -> None:
+        for priority in (0, 5):
+            steps = self.parse_text(HEADER + f" 1 , SEND , P1 , C1 , payload , 5 ,{priority}\n")
+            self.assertEqual(steps, [SimulationStep(1, "SEND", "P1", "C1", " payload ", 5, priority)])
+
+    def test_rejects_out_of_range_priority_and_timer_delay(self) -> None:
+        for field, delay, priority in (("priority", 0, -1), ("priority", 0, 6),
+                                       ("priority", 0, 99), ("delay_ms", 2**31, 0)):
+            with self.subTest(field=field, delay=delay, priority=priority):
+                with self.assertRaisesRegex(ValueError, f"Dòng 2.*'{field}'"):
+                    self.parse_text(HEADER + f"1,SEND,P1,C1,hello,{delay},{priority}\n")
+        self.assertEqual(self.parse_text(HEADER + f"1,SEND,P1,C1,hello,{2**31-1},0\n")[0].delay_ms, 2**31-1)
+
+    def test_rejects_unknown_fault_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Dòng 2.*'simulate_error'"):
+            self.parse_text(HEADER.rstrip() + ",simulate_error\n1,SEND,P1,C1,hello,0,0,CHEKSUM\n")
 
     def test_blank_lines_are_skipped(self) -> None:
         steps = self.parse_text(HEADER + "\n1,PRODUCE,P1,C1,hello,0,0\n\n")
