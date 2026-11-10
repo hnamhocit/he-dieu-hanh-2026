@@ -340,6 +340,11 @@ class TestExceptionHandling(unittest.TestCase):
 
     def test_concurrent_same_priority_is_fifo_per_producer(self) -> None:
         """Nhiều Producer cùng priority chạy song song: sequence duy nhất, mỗi Producer giữ đúng thứ tự gửi."""
+        # This test is kept for backward compatibility
+        self._run_concurrent_test(capacity=200, num_workers=4, items_per_worker=25)
+
+    def _run_concurrent_test(self, capacity: int, num_workers: int, items_per_worker: int) -> None:
+        """Helper method to run concurrent stress test with configurable parameters."""
         mq = MessageQueue(capacity=200, is_priority=True)
 
         def worker(name: str) -> None:
