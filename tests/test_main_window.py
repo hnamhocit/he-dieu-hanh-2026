@@ -315,7 +315,7 @@ class TestMainWindow(unittest.TestCase):
     def test_default_layout_shows_all_panels_without_scrolling(self):
         self.window.show()
         self.app.processEvents()
-        scroll = self.window.centralWidget()
+        scroll = self.window.tabs.widget(0)
         self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
         self.assertEqual(scroll.verticalScrollBar().maximum(), 0)
         self.assertTrue(self.window.export_button.isVisible())
@@ -352,7 +352,7 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(len(self.window.buffer_chart.samples), 4)
         self.assertEqual(self.window.trace_table.rowCount(), 3)
         self.app.processEvents()
-        self.assertEqual(self.window.centralWidget().verticalScrollBar().maximum(), 0)
+        self.assertEqual(self.window.tabs.widget(0).verticalScrollBar().maximum(), 0)
         exported = self.directory / "result.csv"
         self.assertTrue(self.window.export_trace(exported))
         with exported.open(encoding="utf-8-sig", newline="") as stream:

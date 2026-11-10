@@ -1,0 +1,300 @@
+{
+  "source_ref": "b1ae0e6a292005fec82e82d18bb80c6411dadda1",
+  "verification_date": "2026-11-07",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "environment": {
+    "os": "Darwin",
+    "os_version": "26.5.2",
+    "architecture": "arm64",
+    "python": "3.14.2",
+    "PyQt6": "6.12.0",
+    "matplotlib": "3.11.2",
+    "qt_platform": "offscreen",
+    "window_size": "1280x1080"
+  },
+  "method": "Qt offscreen, QTest button clicks; file paths supplied at dialog return boundary; no mock Core results",
+  "images": [
+    "01_csv_ready.png",
+    "02_pause_writing.png",
+    "03_shared_memory_results.png",
+    "04_invalid_csv.png",
+    "05_priority_queue.png",
+    "06_benchmark.png"
+  ],
+  "observations": {
+    "initial": {
+      "state": "Chưa chọn file",
+      "start_enabled": false
+    },
+    "valid_csv": {
+      "rows": 7,
+      "start_enabled": true
+    },
+    "pause": {
+      "state": "Đang tạm dừng",
+      "slot_0": "WRITING",
+      "resume_button": "Tiếp tục"
+    },
+    "shared_memory": {
+      "statuses": [
+        "SUCCESS",
+        "SUCCESS",
+        "BLOCKED",
+        "SUCCESS",
+        "SUCCESS",
+        "BLOCKED",
+        "SUCCESS"
+      ],
+      "count": 1,
+      "empty": 1,
+      "full": 1,
+      "in_ptr": 1,
+      "out_ptr": 0,
+      "exported_rows": 7,
+      "export_matches_table": true,
+      "steps": [
+        {
+          "step": 1,
+          "status": "SUCCESS",
+          "buffer": [
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 1,
+              "message": "Hello",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            },
+            null
+          ],
+          "in_ptr": 1,
+          "out_ptr": 0,
+          "empty": 1,
+          "full": 1
+        },
+        {
+          "step": 2,
+          "status": "SUCCESS",
+          "buffer": [
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 1,
+              "message": "Hello",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            },
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 2,
+              "message": "World",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            }
+          ],
+          "in_ptr": 0,
+          "out_ptr": 0,
+          "empty": 0,
+          "full": 2
+        },
+        {
+          "step": 3,
+          "status": "BLOCKED",
+          "buffer": [
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 1,
+              "message": "Hello",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            },
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 2,
+              "message": "World",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            }
+          ],
+          "in_ptr": 0,
+          "out_ptr": 0,
+          "empty": 0,
+          "full": 2
+        },
+        {
+          "step": 4,
+          "status": "SUCCESS",
+          "buffer": [
+            null,
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 2,
+              "message": "World",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            }
+          ],
+          "in_ptr": 0,
+          "out_ptr": 1,
+          "empty": 1,
+          "full": 1
+        },
+        {
+          "step": 5,
+          "status": "SUCCESS",
+          "buffer": [
+            null,
+            null
+          ],
+          "in_ptr": 0,
+          "out_ptr": 0,
+          "empty": 2,
+          "full": 0
+        },
+        {
+          "step": 6,
+          "status": "BLOCKED",
+          "buffer": [
+            null,
+            null
+          ],
+          "in_ptr": 0,
+          "out_ptr": 0,
+          "empty": 2,
+          "full": 0
+        },
+        {
+          "step": 7,
+          "status": "SUCCESS",
+          "buffer": [
+            {
+              "action": "PRODUCE",
+              "delay_ms": 0,
+              "id": 7,
+              "message": "Wrap around",
+              "priority": 0,
+              "receiver": "C1",
+              "sender": "P1",
+              "simulate_error": "NONE"
+            },
+            null
+          ],
+          "in_ptr": 1,
+          "out_ptr": 0,
+          "empty": 1,
+          "full": 1
+        }
+      ]
+    },
+    "reset": {
+      "trace_rows": 0,
+      "csv_rows_retained": 7,
+      "state": "Sẵn sàng"
+    },
+    "invalid_csv": {
+      "feedback": "INVALID_DATA: Header CSV thiếu cột bắt buộc: id, receiver, sender.",
+      "start_enabled": false,
+      "messages": 0
+    },
+    "priority_queue": {
+      "received_packet_ids": [
+        2,
+        1
+      ],
+      "statuses": [
+        "SUCCESS",
+        "SUCCESS",
+        "SUCCESS",
+        "SUCCESS"
+      ]
+    },
+    "benchmark": {
+      "configuration": {
+        "message_count": 1000,
+        "capacity": 16,
+        "repeats": 3
+      },
+      "completed_runs": 6,
+      "results": [
+        {
+          "mechanism": "SHARED_MEMORY",
+          "run": 1,
+          "message_count": 1000,
+          "elapsed_seconds": 0.261251917,
+          "throughput": 3827.7231091092817,
+          "latency_avg_ms": 2.224596677,
+          "latency_min_ms": 0.985416,
+          "latency_max_ms": 7.335417
+        },
+        {
+          "mechanism": "MESSAGE_QUEUE",
+          "run": 1,
+          "message_count": 1000,
+          "elapsed_seconds": 0.107693042,
+          "throughput": 9285.65097083988,
+          "latency_avg_ms": 0.8340411729999999,
+          "latency_min_ms": 0.286875,
+          "latency_max_ms": 8.208292
+        },
+        {
+          "mechanism": "SHARED_MEMORY",
+          "run": 2,
+          "message_count": 1000,
+          "elapsed_seconds": 0.259176166,
+          "throughput": 3858.379477687003,
+          "latency_avg_ms": 2.294511641,
+          "latency_min_ms": 0.975375,
+          "latency_max_ms": 17.549167
+        },
+        {
+          "mechanism": "MESSAGE_QUEUE",
+          "run": 2,
+          "message_count": 1000,
+          "elapsed_seconds": 0.088090375,
+          "throughput": 11351.978011218593,
+          "latency_avg_ms": 0.7837052280000001,
+          "latency_min_ms": 0.2915,
+          "latency_max_ms": 12.770792
+        },
+        {
+          "mechanism": "SHARED_MEMORY",
+          "run": 3,
+          "message_count": 1000,
+          "elapsed_seconds": 0.286076417,
+          "throughput": 3495.5695072201634,
+          "latency_avg_ms": 2.4637609200000004,
+          "latency_min_ms": 1.054125,
+          "latency_max_ms": 14.342375
+        },
+        {
+          "mechanism": "MESSAGE_QUEUE",
+          "run": 3,
+          "message_count": 1000,
+          "elapsed_seconds": 0.093362917,
+          "throughput": 10710.890706210475,
+          "latency_avg_ms": 0.722575145,
+          "latency_min_ms": 0.268417,
+          "latency_max_ms": 12.735125
+        }
+      ],
+      "throughput_series": 2,
+      "latency_series": 2
+    }
+  }
+}

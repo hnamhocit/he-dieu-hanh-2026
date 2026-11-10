@@ -1,0 +1,5 @@
+id,action,sender,receiver,message,delay_ms,priority
+1,SEND,P1,C1,Tin thuong,300,1
+2,SEND,P2,C1,Tin uu tien,300,5
+3,RECEIVE,C1,P1,,300,0
+4,RECEIVE,C1,P2,,300,0
