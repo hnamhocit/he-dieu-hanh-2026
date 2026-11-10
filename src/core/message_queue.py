@@ -18,6 +18,10 @@ from typing import Any, Optional
 from src.core.ipc_interface import IIPCMechanism, IPCResult, IPCStatus
 from src.core import log_trace
 
+# Giới hạn độ dài payload (ký tự) theo đặc tả đầu vào và Oracle. Mặc định 100;
+# chỉ benchmark (HDH-112) mới nâng lên để đo payload lớn.
+MAX_PAYLOAD_CHARS = 100
+
 
 @dataclass
 class MessagePacket:
@@ -229,13 +233,13 @@ class MessageQueue(IIPCMechanism):
             log_trace("ERROR_INVALID_PACKET", f"Process: {process_id}")
             return self._error_result("INVALID_PACKET", packet_error)
 
-        # Tầng Guard bảo vệ biên cực đại: không cho phép payload vượt quá 100 ký tự (Kịch bản 7 Oracle)
-        if len(packet.message) > 100:
+        # Tầng Guard bảo vệ biên cực đại: không cho phép payload vượt quá MAX_PAYLOAD_CHARS (mặc định 100 ký tự, Kịch bản 7 Oracle)
+        if len(packet.message) > MAX_PAYLOAD_CHARS:
             return IPCResult(
                 status=IPCStatus.ERROR.value,
                 data=None,
                 success=False,
-                detail=f"Payload vượt quá giới hạn 100 ký tự (độ dài: {len(packet.message)}). Bị chặn bởi tầng Guard.",
+                detail=f"Payload vượt quá giới hạn {MAX_PAYLOAD_CHARS} ký tự (độ dài: {len(packet.message)}). Bị chặn bởi tầng Guard.",
             )
 
         try:
