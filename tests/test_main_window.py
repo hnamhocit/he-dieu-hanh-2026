@@ -89,6 +89,9 @@ class TestMainWindow(unittest.TestCase):
             ("id,action\n1,PRODUCE\n", "thiếu cột"),
             ("id,action,sender,receiver\nabc,SEND,P1,C1\n", "số nguyên"),
             ("id,action,sender,receiver\n1,UNKNOWN,P1,C1\n", "action"),
+            ("id,action,sender,receiver,priority\n1,SEND,P1,C1,99\n", "priority"),
+            ("id,action,sender,receiver,simulate_error\n1,SEND,P1,C1,CHEKSUM\n", "simulate_error"),
+            ("id,action,sender,receiver,delay_ms\n1,SEND,P1,C1,2147483648\n", "delay_ms"),
         ):
             with self.subTest(detail=detail):
                 path = self.directory / "bad.csv"
@@ -311,6 +314,32 @@ class TestMainWindow(unittest.TestCase):
         self.window.show()
         self.app.processEvents()
         self.assertFalse(self.window.grab().isNull())
+
+    def test_configuration_change_clears_completed_run_consistently(self):
+        for setting in ("capacity", "mechanism", "priority"):
+            with self.subTest(setting=setting):
+                self.load_sample()
+                self.window.mechanism_combo.setCurrentIndex(2)
+                self.window._start()
+                self.wait_for_simulation()
+                self.assertGreater(self.window.trace_table.rowCount(), 0)
+                if setting == "capacity":
+                    self.window.buffer_spin.setValue(6)
+                elif setting == "mechanism":
+                    self.window.mechanism_combo.setCurrentIndex(0)
+                else:
+                    self.window.priority_checkbox.setChecked(True)
+                self.assertIsNone(self.window.controller.core)
+                self.assertEqual(self.window.trace_table.rowCount(), 0)
+                self.assertEqual(self.window.processed_steps_label.text(), "0")
+                self.assertEqual(self.window.buffer_chart.samples, [])
+                self.assertTrue(all(item is None for item in self.window.buffer_slots.buffer))
+                self.assertFalse(self.window.export_button.isEnabled())
+                self.assertEqual(self.window.state, UIState.READY)
+                self.assertEqual(len(self.window.messages), SAMPLE_COUNT)
+                self.window._start()
+                self.wait_for_simulation()
+                self.assertEqual(self.window.trace_table.rowCount(), SAMPLE_COUNT)
 
     def test_default_layout_shows_all_panels_without_scrolling(self):
         self.window.show()
