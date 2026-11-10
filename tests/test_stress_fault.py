@@ -83,7 +83,14 @@ def run_stress_test(queue_type="message_queue"):
         concurrent.futures.wait(producer_futures + consumer_futures)
 
     duration = time.time() - start_stress_time
-    print(f"\n⚡ Hoàn thành đẩy tải: Đã xử lý liên tục {NUM_PRODUCERS * MESSAGES_PER_PRODUCER} gói tin trong {duration:.2f} giây.")
+    total_msgs = NUM_PRODUCERS * MESSAGES_PER_PRODUCER
+    throughput = total_msgs / duration if duration > 0 else 0
+    
+    print(f"\n⚡ Kết quả kiểm thử tải cao:")
+    print(f"- Tổng số gói tin: {total_msgs}")
+    print(f"- Thời gian thực thi: {duration:.2f} giây") 
+    print(f"- Throughput: {throughput:.2f} msg/giây")
+    print(f"- Thời gian trung bình mỗi msg: {(duration*1000)/total_msgs:.4f} ms")
 
 
 def verify_timestamp_accuracy():
