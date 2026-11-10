@@ -221,6 +221,11 @@ class TestSharedMemory(unittest.TestCase):
 
     def test_concurrent_multithreaded_producer_consumer(self) -> None:
         """Kiểm tra an toàn đa luồng tải cao không bị Race Condition hay Deadlock (HDH-86)."""
+        # This test is kept for backward compatibility
+        self._run_concurrent_test(capacity=5, num_workers=3, items_per_worker=30)
+
+    def _run_concurrent_test(self, capacity: int, num_workers: int, items_per_worker: int) -> None:
+        """Helper method to run concurrent stress test with configurable parameters."""
         import concurrent.futures
         shm = SharedMemory(capacity=5)
         num_items_per_worker = 30

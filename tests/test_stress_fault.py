@@ -56,8 +56,12 @@ def simulated_consumer(queue: MessageQueue, consumer_id: int):
             blocked_or_fail_count += 1
 
 
-def run_stress_test():
-    """Chạy kịch bản 500 tin nhắn đồng thời giữa 5 Producers và 5 Consumers."""
+def run_stress_test(queue_type="message_queue"):
+    """Chạy kịch bản 500 tin nhắn đồng thời giữa 5 Producers và 5 Consumers.
+    
+    Args:
+        queue_type: Loại queue để test ("message_queue" hoặc "shared_memory")
+    """
     # Khởi tạo lại file log trước khi chạy test để ghi nhận đúng lượng log của đợt test
     if os.path.exists(LOG_FILE_PATH):
         try:
@@ -66,7 +70,11 @@ def run_stress_test():
             pass
     init_trace_logger()
 
-    stress_queue = MessageQueue(capacity=QUEUE_CAPACITY, is_priority=True)
+    if queue_type == "message_queue":
+        stress_queue = MessageQueue(capacity=QUEUE_CAPACITY, is_priority=True)
+    else:
+        from src.core.shared_memory import SharedMemory
+        stress_queue = SharedMemory(capacity=QUEUE_CAPACITY)
     start_stress_time = time.time()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_PRODUCERS + NUM_CONSUMERS) as executor:
@@ -140,8 +148,15 @@ def verify_log_integrity():
 class TestStressFault(unittest.TestCase):
     """Unit test runner cho kiểm thử tải cao và toàn vẹn file log."""
 
-    def test_stress_concurrency_and_log_integrity(self):
-        run_stress_test()
+    def test_message_queue_stress(self):
+        """Kiểm thử tải cao cho Message Queue"""
+        run_stress_test(queue_type="message_queue")
+        verify_timestamp_accuracy()
+        verify_log_integrity()
+
+    def test_shared_memory_stress(self):
+        """Kiểm thử tải cao cho Shared Memory"""
+        run_stress_test(queue_type="shared_memory")
         verify_timestamp_accuracy()
         verify_log_integrity()
 
