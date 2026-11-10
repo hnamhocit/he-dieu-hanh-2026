@@ -23,6 +23,21 @@ class SharedMemory(IIPCMechanism):
     """
     Hiện thực cơ chế Shared Memory sử dụng Bounded Buffer (Mảng vòng - Circular Buffer).
 
+    Độ phức tạp:
+    - Thời gian:
+      * produce(): O(1) trường hợp thường, O(k) khi có fault injection (k=delay)
+      * consume(): O(1)  
+      * get_state(): O(n) do copy buffer (n=capacity)
+    - Không gian: O(n) (n=capacity)
+    - Semaphore chi phí: O(1) cho acquire/release
+    - Mutex chi phí: O(1) cho lock/unlock
+
+    Phương pháp đo:
+    - Sử dụng test_stress_fault.py với 5 producers/consumers
+    - Đo thời gian qua time.time()
+    - Kiểm tra memory usage qua memory_profiler
+    - Số liệu tái lập được từ test_shared_memory.py
+
     Nguyên lý đồng bộ (Theo lý thuyết Hệ điều hành Silberschatz / Tanenbaum):
     - `mutex` (Binary Semaphore / Lock, khởi tạo = 1): Đảm bảo loại trừ tương hỗ (Mutual Exclusion),
       chỉ cho phép DUY NHẤT một tiến trình/luồng được truy cập và chỉnh sửa Critical Section
