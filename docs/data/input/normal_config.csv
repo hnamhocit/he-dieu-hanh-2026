@@ -1,0 +1,6 @@
+step,action,payload,priority
+1,produce,Goi_Tin_Dau_Tien,high
+2,produce,Du_Lieu_So_02,normal
+3,consume,,
+4,produce,Du_Lieu_So_03,low
+5,consume,,

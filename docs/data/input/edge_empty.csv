@@ -1,0 +1,4 @@
+step,action,payload,priority
+1,consume,,
+2,produce,Tin_Nhan_Khan_Cap,critical
+3,consume,,

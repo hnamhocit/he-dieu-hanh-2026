@@ -1,0 +1,12 @@
+# GUI Framework
+PyQt6>=6.6.0
+
+# Plotting & Visualization
+matplotlib>=3.8.0
+
+# Testing & Oracle Verification
+pytest>=8.0.0
+pytest-cov>=4.1.0
+
+# System & Process Benchmarking (CPU, Memory, Throughput, Latency)
+psutil>=5.9.0
