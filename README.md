@@ -3,6 +3,7 @@
 > **Môn học:** Hệ điều hành  
 > **Đề tài:** Mô phỏng hoặc hiện thực trao đổi dữ liệu giữa process bằng **Shared Memory** và **Message Queue**; có trace và xử lý lỗi (Fault Injection).  
 > **Nền tảng mục tiêu:** Desktop GUI (PyQt6 / Cross-platform)
+> **Bản đóng gói chạy trực tiếp (Windows .exe):** [Tải file OS_IPC_09_Simulator.exe tại đây]https://drive.google.com/drive/folders/14hwbPLpyDXCkcFoKvYNo72GxU1Mn2aI6
 
 ---
 
