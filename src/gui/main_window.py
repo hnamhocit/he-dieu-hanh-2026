@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
         self._produced = self._consumed = self._failed = 0
         self.setWindowTitle("OS_IPC_09 - Desktop IPC Simulator")
         self.resize(1180, 980)
-        self.setMinimumSize(940, 700)
+        self.setMinimumSize(800, 580)
         self.setStyleSheet(STYLESHEET)
         self._build_layout()
         self._set_state(UIState.EMPTY)
@@ -652,6 +652,7 @@ class MainWindow(QMainWindow):
         follow_tail = scrollbar.value() >= scrollbar.maximum() - 1
         status = str(values[6]).strip().upper()
         background, foreground = TRACE_STATUS_COLORS.get(status, TRACE_DEFAULT_COLORS)
+        self.trace_table.setUpdatesEnabled(False)
         row = self.trace_table.rowCount()
         self.trace_table.insertRow(row)
         for column, value in enumerate(values):
@@ -660,6 +661,7 @@ class MainWindow(QMainWindow):
             item.setForeground(QColor(foreground))
             item.setToolTip(str(value))
             self.trace_table.setItem(row, column, item)
+        self.trace_table.setUpdatesEnabled(True)
         if follow_tail:
             self.trace_table.scrollToBottom()
         self.export_button.setEnabled(True)
