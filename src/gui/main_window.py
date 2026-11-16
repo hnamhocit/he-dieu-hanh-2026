@@ -219,6 +219,7 @@ class MainWindow(QMainWindow):
         self.priority_checkbox.setObjectName("priorityCheckBox")
         self.priority_checkbox.setEnabled(False)
         self.priority_checkbox.setToolTip("Chỉ kích hoạt khi chọn cơ chế Message Queue")
+        self.priority_checkbox.toggled.connect(self._on_configuration_changed)
         layout.addWidget(self.priority_checkbox)
         self.mechanism_combo.currentIndexChanged.connect(self._on_mechanism_changed)
         controls = QHBoxLayout()
@@ -238,7 +239,7 @@ class MainWindow(QMainWindow):
             controls.addWidget(button, 1)
         layout.addLayout(controls)
         self.control_state_label = _label("")
-        self.buffer_spin.valueChanged.connect(self._capacity_changed)
+        self.buffer_spin.valueChanged.connect(self._on_configuration_changed)
         return group
 
     def _actor_card(self, title, name, counter_labels):
@@ -440,6 +441,14 @@ class MainWindow(QMainWindow):
         self.priority_checkbox.setEnabled(editable and is_mq)
         if not is_mq:
             self.priority_checkbox.setChecked(False)
+        self._on_configuration_changed()
+
+    @pyqtSlot()
+    def _on_configuration_changed(self):
+        if self.state == UIState.READY:
+            self._reset()
+        else:
+            self._capacity_changed(self.buffer_spin.value())
 
     def _set_state(self, state: UIState):
         self.state = state

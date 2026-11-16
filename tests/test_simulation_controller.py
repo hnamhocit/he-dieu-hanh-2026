@@ -169,6 +169,22 @@ class TestSimulationController(unittest.TestCase):
         self.assertEqual(delays, [0])
         self.assertEqual(self.completed[0][0]["step"]["delay_ms"], 20)
 
+    def test_delay_fault_does_not_add_default_sleep_after_csv_delay(self):
+        delayed = dict(step(1, "PRODUCE", 20), simulate_error="DELAY")
+        with patch("src.core.shared_memory.time.sleep") as sleep:
+            self.start([delayed])
+            self.wait_until(lambda: not self.controller.running)
+        sleep.assert_not_called()
+        self.assertEqual(len(self.completed), 1)
+        self.assertEqual(self.completed[0][0]["step"]["simulate_error"], "DELAY")
+
+    def test_delay_fault_without_csv_delay_keeps_default_sleep(self):
+        delayed = dict(step(1, "PRODUCE"), simulate_error="DELAY")
+        with patch("src.core.shared_memory.time.sleep") as sleep:
+            self.start([delayed])
+            self.wait_until(lambda: not self.controller.running)
+        sleep.assert_called_once_with(0.05)
+
     def test_slow_core_keeps_ui_responsive_and_pause_defers_playback(self):
         from src.core.shared_memory import SharedMemory
         produce = SharedMemory.produce

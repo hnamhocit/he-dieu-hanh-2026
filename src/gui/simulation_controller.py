@@ -42,7 +42,11 @@ class _IPCStep(QRunnable):
                 kwargs["events"] = events
             if self.step["action"] in ("PRODUCE", "SEND"):
                 # QTimer đã xử lý delay_ms của CSV; tránh áp dụng lại trong Core.
-                outcome["result"] = self.core.produce(dict(self.step, delay_ms=0), **kwargs)
+                item = dict(self.step, delay_ms=0)
+                if item.get("simulate_error") == "DELAY" and self.step["delay_ms"] > 0:
+                    # SharedMemory mặc định ngủ thêm 50 ms nếu DELAY có delay_ms=0.
+                    item["simulate_error"] = "NONE"
+                outcome["result"] = self.core.produce(item, **kwargs)
             else:
                 outcome["result"] = self.core.consume(**kwargs)
             outcome["snapshot"] = self.core.get_state()
