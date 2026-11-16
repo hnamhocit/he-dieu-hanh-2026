@@ -3,17 +3,17 @@
 > **Mã nhiệm vụ Jira:** `HDH-118`
 > **Người thực hiện:** Lê Hải Đăng
 
-Mục này tổng kết kết quả đạt được, nêu các hạn chế còn tồn tại và hướng phát triển, liệt kê tài liệu tham khảo, khai báo việc sử dụng công cụ AI và cung cấp phụ lục để tái lập kết quả.
+Mục này tổng kết kết quả đạt được, nêu các hạn chế còn tồn tại và hướng phát triển, liệt kê tài liệu tham khảo, khai báo việc sử dụng công cụ AI và cung cấp phụ lục gồm liên kết demo, dữ liệu CSV mẫu, trích đoạn log và báo cáo kiểm thử.
 
 ## 7.1. Kết luận
 
 Nhóm đã xây dựng một ứng dụng desktop bằng Python và PyQt6 mô phỏng hai cơ chế trao đổi dữ liệu giữa các tiến trình là Shared Memory và Message Queue, có ghi vết vi sự kiện (trace) và bơm lỗi chủ động (fault injection). Các kết quả chính:
 
-- **Shared Memory:** bộ đệm vòng dùng hai Semaphore đếm `empty`, `full` và một `mutex`. Producer và Consumer chiếm Semaphore đếm trước rồi mới chiếm `mutex` để tránh deadlock, và hoàn trả Semaphore (rollback) khi không chiếm được `mutex`.
-- **Message Queue:** cài đặt theo mô hình Monitor gồm một `mutex` và hai biến điều kiện `not_full`, `not_empty`. Hàng đợi hỗ trợ FIFO và Priority; các gói tin cùng độ ưu tiên được xử lý theo thứ tự vào trước ra trước; kết quả phân biệt rõ `BLOCKED` và `TIMEOUT`.
-- **Kiến trúc:** tầng thuật toán lõi tách khỏi giao diện qua interface `IIPCMechanism` với các phương thức `produce()`, `consume()` và `get_state()`. Giao diện nạp và kiểm tra file cấu hình CSV, hiển thị trạng thái từng ô nhớ, bảng trace theo thời gian thực, tab Benchmark & Analysis và xuất file trace CSV.
-- **Kiểm chứng:** cả 10 kịch bản đối chiếu với Oracle tính tay đều đạt (Mục 4.1), trong đó kịch bản tiến trình bị crash khi đang giữ khóa đạt có điều kiện vì thời điểm mở khóa thực tế lệch so với mốc 300 ms lý thuyết. Script `tests/run_all_tests.py` chạy 127 test (83 unit, 40 tích hợp, 4 benchmark) không có test lỗi hay hỏng.
-- **Hiệu năng:** với 1.000 gói tin, chạy ba lần trên tab Benchmark, Message Queue đạt khoảng 9.300 đến 11.400 gói/giây, độ trễ trung bình 0,72 đến 0,83 ms; Shared Memory đạt khoảng 3.500 đến 3.900 gói/giây, độ trễ trung bình 2,22 đến 2,46 ms.
+- **Shared Memory: **bộ đệm vòng dùng hai Semaphore đếm `empty`, `full` và một `mutex`. Producer và Consumer chiếm Semaphore đếm trước rồi mới chiếm `mutex` để tránh deadlock, và hoàn trả Semaphore (rollback) khi không chiếm được `mutex`.
+- **Message Queue: **cài đặt theo mô hình Monitor gồm một `mutex` và hai biến điều kiện `not_full`, `not_empty`. Hàng đợi hỗ trợ FIFO và Priority; các gói tin cùng độ ưu tiên được xử lý theo thứ tự vào trước ra trước; kết quả phân biệt rõ `BLOCKED` và `TIMEOUT`.
+- **Kiến trúc: **tầng thuật toán lõi tách khỏi giao diện qua interface `IIPCMechanism` với các phương thức `produce()`, `consume()` và `get_state()`. Giao diện nạp và kiểm tra file cấu hình CSV, hiển thị trạng thái từng ô nhớ, bảng trace theo thời gian thực, tab Benchmark & Analysis và xuất file trace CSV.
+- **Kiểm chứng: **cả 10 kịch bản đối chiếu với Oracle tính tay đều đạt (Mục 4.1), trong đó kịch bản tiến trình bị crash khi đang giữ khóa đạt có điều kiện vì thời điểm mở khóa thực tế lệch so với mốc 300 ms lý thuyết. Script `tests/run_all_tests.py` chạy 127 test (83 unit, 40 tích hợp, 4 benchmark) và tất cả đều đạt (Phụ lục D).
+- **Hiệu năng: **với 1.000 gói tin, chạy ba lần trên tab Benchmark, Message Queue đạt khoảng 9.300 đến 11.400 gói/giây, độ trễ trung bình 0,72 đến 0,83 ms; Shared Memory đạt khoảng 3.500 đến 3.900 gói/giây, độ trễ trung bình 2,22 đến 2,46 ms.
 
 Kết quả hiệu năng trên cần được đọc đúng bối cảnh. Trong bản mô phỏng, mỗi thao tác Shared Memory phải qua hai Semaphore và một `mutex` viết bằng Python, còn chi phí sao chép User ↔ Kernel của Message Queue không được mô phỏng (Mục 5.3). Vì vậy Message Queue nhanh hơn trong mô phỏng; điều này không mâu thuẫn với lý thuyết rằng trên hệ điều hành thật Shared Memory nhanh hơn khi dữ liệu lớn. Kết luận về trade-off ở Mục 5.4 vẫn giữ nguyên: Shared Memory đổi sự đơn giản và an toàn lấy tốc độ, Message Queue đổi tốc độ lấy thứ tự, độ ưu tiên và sự cô lập dữ liệu.
 
@@ -38,18 +38,25 @@ Qua đề tài, nhóm rút ra ba bài học chính: thứ tự chiếm khóa quy
 
 ## 7.3. Tài liệu tham khảo
 
-1. A. Silberschatz, P. B. Galvin, G. Gagne, *Operating System Concepts*, 10th ed. Hoboken, NJ: Wiley, 2018. (Chương 3: Processes và IPC; Chương 6–7: Synchronization.)
-2. A. S. Tanenbaum, H. Bos, *Modern Operating Systems*, 4th ed. Boston: Pearson, 2014. (Chương 2: Processes and Threads.)
-3. IEEE and The Open Group, *IEEE Std 1003.1-2017 (POSIX.1-2017), The Open Group Base Specifications Issue 7*, 2018. Các hàm `shm_open`, `mmap`, `sem_wait`, `mq_open`, `mq_send`, `mq_receive`. Truy cập tại: <https://pubs.opengroup.org/onlinepubs/9699919799/>
-4. M. Kerrisk, *The Linux Programming Interface*, San Francisco: No Starch Press, 2010. (Chương 51–54: POSIX IPC, message queue, semaphore, shared memory.)
-5. R. H. Arpaci-Dusseau, A. C. Arpaci-Dusseau, *Operating Systems: Three Easy Pieces*, Arpaci-Dusseau Books, 2018. (Các chương Condition Variables và Semaphores.) Truy cập tại: <https://pages.cs.wisc.edu/~remzi/OSTEP/>
-6. E. W. Dijkstra, *Cooperating Sequential Processes*, Technical Report EWD-123, Technological University Eindhoven, 1965. Truy cập tại: <https://www.cs.utexas.edu/~EWD/transcriptions/EWD01xx/EWD123.html>
-7. Python Software Foundation, *threading: Thread-based parallelism*, Python 3 Documentation. Truy cập tại: <https://docs.python.org/3/library/threading.html>
-8. Riverbank Computing, *PyQt6 Reference Guide*, tài liệu thư viện giao diện. Truy cập tại: <https://www.riverbankcomputing.com/static/Docs/PyQt6/>
+[1] A. Silberschatz, P. B. Galvin, G. Gagne, *Operating System Concepts*, 10th ed. Hoboken, NJ: Wiley, 2018. (Chương 3: Processes và IPC; Chương 6–7: Synchronization.)
+
+[2] A. S. Tanenbaum, H. Bos, *Modern Operating Systems*, 4th ed. Boston: Pearson, 2014. (Chương 2: Processes and Threads.)
+
+[3] IEEE and The Open Group, *IEEE Std 1003.1-2017 (POSIX.1-2017), The Open Group Base Specifications Issue 7*, 2018. Các hàm shm_open, mmap, sem_wait, mq_open, mq_send, mq_receive. Truy cập tại: [https://pubs.opengroup.org/onlinepubs/9699919799/](https://pubs.opengroup.org/onlinepubs/9699919799/)
+
+[4] M. Kerrisk, *The Linux Programming Interface*, San Francisco: No Starch Press, 2010. (Chương 51–54: POSIX IPC, message queue, semaphore, shared memory.)
+
+[5] R. H. Arpaci-Dusseau, A. C. Arpaci-Dusseau, *Operating Systems: Three Easy Pieces*, Arpaci-Dusseau Books, 2018. (Các chương Condition Variables và Semaphores.) Truy cập tại: [https://pages.cs.wisc.edu/~remzi/OSTEP/](https://pages.cs.wisc.edu/~remzi/OSTEP/)
+
+[6] E. W. Dijkstra, *Cooperating Sequential Processes*, Technical Report EWD-123, Technological University Eindhoven, 1965. Truy cập tại: [https://www.cs.utexas.edu/~EWD/transcriptions/EWD01xx/EWD123.html](https://www.cs.utexas.edu/~EWD/transcriptions/EWD01xx/EWD123.html)
+
+[7] Python Software Foundation, *threading: Thread-based parallelism*, Python 3 Documentation. Truy cập tại: [https://docs.python.org/3/library/threading.html](https://docs.python.org/3/library/threading.html)
+
+[8] Riverbank Computing, *PyQt6 Reference Guide*, tài liệu thư viện giao diện. Truy cập tại: [https://www.riverbankcomputing.com/static/Docs/PyQt6/](https://www.riverbankcomputing.com/static/Docs/PyQt6/)
 
 ## 7.4. Khai báo sử dụng AI
 
-Theo yêu cầu của đề cương, nhóm khai báo việc sử dụng công cụ trí tuệ nhân tạo (AI) trong quá trình thực hiện đề tài. Quy tắc sử dụng AI của nhóm được ghi trong [`docs/HUONG_DAN_SU_DUNG_AI.md`](HUONG_DAN_SU_DUNG_AI.md).
+Theo yêu cầu của đề cương, nhóm khai báo việc sử dụng công cụ trí tuệ nhân tạo (AI) trong quá trình thực hiện đề tài. Quy tắc sử dụng AI của nhóm được ghi trong `docs/HUONG_DAN_SU_DUNG_AI.md`.
 
 | Công cụ | Mục đích sử dụng | Cách kiểm soát |
 | --- | --- | --- |
@@ -60,16 +67,18 @@ Nhóm cam kết: thiết kế giải thuật, số liệu thực nghiệm và k�
 
 ## 7.5. Phụ lục
 
-### A. Liên kết sản phẩm
+### Phụ lục A. Liên kết sản phẩm
 
-| Nội dung | Liên kết |
+Đường dẫn được ghi đầy đủ để vẫn tra cứu được khi báo cáo được in ra.
+
+| Nội dung | Đường dẫn |
 | --- | --- |
-| Mã nguồn (GitHub) | <https://github.com/hnamhocit/he-dieu-hanh-2026> |
-| Quản lý công việc (Jira) | [Dự án HDH trên Jira](https://hnamhocit.atlassian.net/jira/software/projects/HDH/list) |
-| Video demo | [Video demo trên Google Drive](https://drive.google.com/file/d/1MO8VAnc0wXfTMEOw5fXiKHfJdAIvnBSK/view?usp=sharing) |
-| Bản đóng gói Windows (.exe) | [Thư mục OS_IPC_09_Simulator trên Google Drive](https://drive.google.com/drive/folders/14hwbPLpyDXCkcFoKvYNo72GxU1Mn2aI6) |
+| Mã nguồn (GitHub) | [https://github.com/hnamhocit/he-dieu-hanh-2026](https://github.com/hnamhocit/he-dieu-hanh-2026) |
+| Quản lý công việc (Jira) | [https://hnamhocit.atlassian.net/jira/software/projects/HDH/list](https://hnamhocit.atlassian.net/jira/software/projects/HDH/list) |
+| Video demo | [https://drive.google.com/file/d/1MO8VAnc0wXfTMEOw5fXiKHfJdAIvnBSK/view?usp=sharing](https://drive.google.com/file/d/1MO8VAnc0wXfTMEOw5fXiKHfJdAIvnBSK/view?usp=sharing) |
+| Bản đóng gói Windows (.exe) | [https://drive.google.com/drive/folders/14hwbPLpyDXCkcFoKvYNo72GxU1Mn2aI6](https://drive.google.com/drive/folders/14hwbPLpyDXCkcFoKvYNo72GxU1Mn2aI6) |
 
-### B. Cấu trúc thư mục
+### Phụ lục B. Cấu trúc thư mục
 
 | Thư mục | Nội dung |
 | --- | --- |
@@ -80,9 +89,9 @@ Nhóm cam kết: thiết kế giải thuật, số liệu thực nghiệm và k�
 | `tests` | Unit test, test tích hợp, stress test và script chạy toàn bộ `run_all_tests.py`. |
 | `docs` | Đặc tả, Test Plan, Oracle tính tay và các mục báo cáo. |
 
-### C. Lệnh tái lập kết quả
+### Phụ lục C. Lệnh tái lập kết quả
 
-```bash
+```
 python -m venv venv
 pip install -r requirements.txt
 python src/main.py
@@ -91,3 +100,39 @@ python -m tests.run_all_tests --full
 ```
 
 Lệnh thứ ba mở giao diện. Lệnh thứ tư chạy toàn bộ test ở chế độ nhanh; thêm `--full` để chạy benchmark đầy đủ (ghi đè file kết quả trong `data/output`).
+
+### Phụ lục D. Dữ liệu CSV, log và báo cáo kiểm thử mẫu
+
+**D.1. File cấu hình đầu vào. **Trích 6 dòng đầu của `data/input/sample_config.csv`. Mỗi dòng là một thao tác: mã bước, hành động, tiến trình gửi, tiến trình nhận, nội dung, độ trễ (ms) và độ ưu tiên.
+
+```
+id,action,sender,receiver,message,delay_ms,priority
+1,PRODUCE,Process_A,Process_B,"Hello from Process A",50,0
+2,CONSUME,Process_B,Process_A,"",30,0
+3,PRODUCE,Process_A,Process_C,"Shared data block alpha",100,0
+4,CONSUME,Process_C,Process_A,"",80,0
+5,PRODUCE,Process_B,Process_C,"Queue message priority 1",20,1
+```
+
+**D.2. File trace xuất ra. **Trích file trace do GUI xuất khi chạy Shared Memory với bộ đệm 2 ô (`docs/hdh111/evidence/shared_memory_trace.csv`). Cột chi tiết được rút gọn, chỉ giữ giá trị các biến đồng bộ sau mỗi bước.
+
+| Bước | Tiến trình | Thao tác | Trạng thái | Độ trễ (ms) | Trạng thái đồng bộ |
+| :---: | :---: | --- | --- | :---: | --- |
+| 1 | P1 | PRODUCE | SUCCESS | 5,264 | Ghi slot 0; Mutex=1, Empty=1, Full=1 |
+| 2 | P1 | PRODUCE | SUCCESS | 5,325 | Ghi slot 1, bộ đệm đầy; Mutex=1, Empty=0, Full=2 |
+| 3 | P2 | PRODUCE | BLOCKED | 6,705 | Bị chặn tại Semaphore empty |
+| 4 | C1 | CONSUME | SUCCESS | 3,974 | Đọc slot 0; Mutex=1, Empty=1, Full=1 |
+| 5 | C1 | CONSUME | SUCCESS | 9,880 | Đọc slot 1, bộ đệm rỗng; Mutex=1, Empty=2, Full=0 |
+| 6 | C2 | CONSUME | BLOCKED | 4,039 | Bị chặn tại Semaphore full |
+| 7 | P1 | PRODUCE | SUCCESS | 6,084 | Con trỏ quay vòng, ghi lại slot 0 |
+
+**D.3. Báo cáo kiểm thử. **Kết quả chạy `python -m tests.run_all_tests` (chế độ nhanh) trong môi trường cài đủ thư viện theo `requirements.txt`:
+
+| Nhóm kiểm thử | Số test | Lỗi | Hỏng | Thời gian (giây) |
+| --- | :---: | :---: | :---: | :---: |
+| Unit test | 83 | 0 | 0 | 1,5 |
+| Integration test | 40 | 0 | 0 | 14,0 |
+| Benchmark test (kiểm tra nhanh) | 4 | 0 | 0 | 1,0 |
+| **Tổng** | **127** | **0** | **0** | **16,5** |
+
+Kết quả: tất cả 127 test đều đạt. Bảng đối chiếu Expected và Actual của 10 kịch bản kiểm thử được trình bày ở Mục 4.1.
