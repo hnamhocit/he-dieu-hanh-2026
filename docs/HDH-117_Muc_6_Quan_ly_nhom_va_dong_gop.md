@@ -1,0 +1,36 @@
+# 6. Quản lý nhóm và đóng góp
+
+> **Mã nhiệm vụ Jira:** `HDH-117`
+> **Người thực hiện:** Lê Hải Đăng
+
+Đề tài mô phỏng trao đổi dữ liệu giữa các tiến trình bằng Shared Memory và Message Queue. Bảng đóng góp tổng hợp công việc của 5 thành viên, đối chiếu phân công trên Jira với sản phẩm và lịch sử GitHub.
+
+## 6.1. Tổ chức và phối hợp
+
+Nhóm phân công công việc qua Jira và quản lý mã nguồn trên GitHub. Theo `MEMBER_WORKFLOW.md`, thành viên tạo nhánh từ `develop`, thực hiện task, mở pull request và chuyển sang Review; PM kiểm tra, yêu cầu chỉnh sửa và tích hợp. Nguyễn Hoàng Nam phụ trách theo dõi Jira/Git và review theo HDH-23; lịch sử Git ghi nhận các lần merge PR của nhóm.
+
+## 6.2. Bảng đóng góp của các thành viên
+
+| Thành viên và vai trò | Nội dung đóng góp (mã task Jira) | Task hoàn thành |
+| --- | --- | :---: |
+| **Nguyễn Hoàng Nam**<br>074207005137<br>*Trưởng nhóm; kiến trúc và Shared Memory* | **Quản lý dự án:** tạo repo GitHub, thêm thành viên, đặt branch protection, `.gitignore` và cấu trúc thư mục (HDH-6, 7, 8, 9); theo dõi Jira/Git và review PR (HDH-23); hợp nhất và chuẩn hóa báo cáo (HDH-113).<br>**Thiết kế:** đặc tả cấu trúc và trạng thái đồng bộ Shared Memory (HDH-10); interface trừu tượng `IIPCMechanism` (HDH-22).<br>**Lập trình:** lõi Shared Memory với Mutex và Semaphore (HDH-24); khóa Circular Buffer, xử lý deadlock/starvation khi buffer đầy hoặc rỗng (HDH-86); IPC Manager điều phối Start, Pause, Stop, Reset và giải phóng tài nguyên (HDH-93); rà soát code base, bổ sung docstring, chuẩn PEP8 (HDH-114).<br>**Hiệu năng:** stress test Shared Memory với payload 64 B đến 10 MB (HDH-103).<br>**Báo cáo:** thuật toán Shared Memory (HDH-87); Mục 3.1 (HDH-94); Mục 5.1 và 5.2 (HDH-104). | **16/16** |
+| **Lê Hải Đăng**<br>075207009780<br>*GUI và CSV Parser* | **Thiết kế:** khởi tạo project PyQt (HDH-16); wireframe giao diện (HDH-17); chốt schema file CSV với nhóm (HDH-18).<br>**Lập trình:** module CSVParser và kiểm tra hợp lệ (HDH-30); bắt ngoại lệ file rỗng, sai định dạng, thiếu cột (HDH-31); layout chính với nút Start, Pause, Reset (HDH-32); nối CSVParser vào Core và widget ô nhớ (HDH-90); bảng log thời gian thực (HDH-97); tab Benchmark & Analysis (HDH-110).<br>**Báo cáo:** Mục 3.3 (HDH-98); hướng dẫn kiểm thử GUI và ảnh minh chứng cho Mục 4 (HDH-111); Mục 6 (HDH-117); Mục 7 (HDH-118). | **13/13** |
+| **Lương Hoài Sơn**<br>075207018633<br>*Message Queue* | **Thiết kế:** đặc tả MessagePacket và MessageQueue (HDH-13); chọn cơ chế FIFO/Priority, blocking/non-blocking (HDH-14); khai báo interface module (HDH-15).<br>**Lập trình:** MessageQueueCore (HDH-27); chế độ blocking và non-blocking (HDH-28); kiểm thử console hàng đợi đầy/rỗng (HDH-29); tie-breaking cho gói tin cùng priority (HDH-88); xử lý timeout, overflow, underflow (HDH-95).<br>**Hiệu năng và kiểm thử:** stress test Message Queue với cùng bộ tải như Shared Memory (HDH-112); script chạy toàn bộ test bằng một lệnh `run_all_tests.py` (HDH-121); tổ chức buổi tổng duyệt phản biện nội bộ (HDH-122).<br>**Báo cáo:** thuật toán Message Queue (HDH-89); Mục 3.2 (HDH-96); Mục 5.3 và 5.4 (HDH-105). | **14/14** |
+| **Đỗ Tường Minh**<br>001207064067<br>*Trace, Fault Injection và chỉ số hiệu năng* | **Tối ưu:** giảm thời gian giữ Mutex (HDH-48); kiểm tra rò rỉ bộ nhớ và deadlock khi tăng số tiến trình (HDH-49).<br>**Lập trình:** Trace Logging Engine (HDH-82); Fault Injector (HDH-83); test tự động cho Trace Logger và Fault Injector (HDH-84); `metrics_calculator.py` (HDH-99); `plot_benchmarks.py` sinh đồ thị (HDH-106).<br>**Kiểm thử và demo:** kiểm thử repo sạch trên máy mới (HDH-115); kịch bản ca kiểm thử lỗi trong video demo (HDH-116).<br>**Báo cáo:** Phần 1 khung báo cáo (HDH-85); Mục 3.4 (HDH-100); Mục 4.2 (HDH-107). | **12/12** |
+| **Huỳnh Thị Khánh Ly**<br>075307015477<br>*Kiểm thử và dữ liệu* | **Kế hoạch:** checklist tiêu chí chấm điểm (HDH-21); Test Plan tối thiểu 10 ca (HDH-19).<br>**Dữ liệu và Oracle:** file CSV mẫu (HDH-20); bộ dữ liệu normal, rỗng, sai định dạng (HDH-34); test case lỗi biên (HDH-91); Oracle tính tay (HDH-33) và cập nhật cho 5 ca biên (HDH-92).<br>**Kiểm thử:** kịch bản tích hợp `test_integration_ipc.py` (HDH-101); chạy toàn bộ test và đối soát Oracle (HDH-108); đóng gói và chạy thử giao diện ở nhiều độ phân giải (HDH-119).<br>**Demo:** quay và dựng video demo tổng thể (HDH-120).<br>**Báo cáo:** Mục 3.5 (HDH-102); Mục 4.1 (HDH-109). | **13/13** |
+
+Mã task trong bảng là các task được giao cho từng thành viên trên Jira. Nhóm có tổng cộng 68 task và tất cả đã hoàn thành.
+
+## 6.3. Minh chứng đóng góp trên GitHub
+
+Các liên kết dưới đây mở trực tiếp thay đổi hoặc pull request tiêu biểu. Commit được chọn theo nội dung file thay đổi; các bản bị revert không được tính thành sản phẩm hoàn thành bổ sung.
+
+| Thành viên | Minh chứng tiêu biểu |
+| --- | --- |
+| Nguyễn Hoàng Nam | [IPC Manager và kiểm thử](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/15f7c15030871e4099c87409a9747badbcf44996)<br>[Tài liệu kiến trúc Mục 3.1](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/2414923ca19c4e507d4c0b4a28f3cfdde6ff4b31)<br>[Stress test Shared Memory và Message Queue](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/dcd7f16ee73723cc7f26a6fbab2631d066b3854b)<br>[Phân tích độ phức tạp và chỉ số hiệu năng SHM](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/046f313a92f360c97a81c6230ffeeac2af23adf0) |
+| Lê Hải Đăng | [GUI kết nối Core và trực quan ô nhớ](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/934fe3e2e956c41989f9b59d0c234fd4120dc076)<br>[Tab benchmark và kiểm thử · PR 53](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/53)<br>[Hướng dẫn GUI và ảnh minh chứng · PR 54](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/54) |
+| Lương Hoài Sơn | [Xử lý ngoại lệ MQ và kiểm thử · PR 48](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/48)<br>[Báo cáo so sánh SHM–MQ · PR 61](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/61)<br>[Benchmark stress test MQ · PR 62](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/62)<br>[Script chạy toàn bộ test · PR 73](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/73)<br>[Câu hỏi tổng duyệt phản biện · PR 74](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/74) |
+| Đỗ Tường Minh | [Module tính chỉ số hiệu năng](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/a29b858526b55a8af5b7e596707965a8904722ee)<br>[Báo cáo trace protocol và fault injector](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/89a788cc93ffe834d93d0df334adb5fe2abbfe26)<br>[Module sinh đồ thị benchmark · PR 55](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/55) |
+| Huỳnh Thị Khánh Ly | [Kiểm thử lỗi biên](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/a440297f931347646bf4ad6d14820c8ed259b387)<br>[Kịch bản kiểm thử tích hợp](https://github.com/hnamhocit/he-dieu-hanh-2026/commit/766832e03730919d8695d9716d61fa487ce092a4)<br>[Báo cáo kiểm chứng sai khác · PR 52](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/52)<br>[Đóng gói và chạy thử giao diện · PR 71](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/71)<br>[Video demo · PR 75](https://github.com/hnamhocit/he-dieu-hanh-2026/pull/75) |
+
+[Nguồn phân công trên Jira](https://hnamhocit.atlassian.net/jira/software/projects/HDH/list?jql=project%20%3D%20HDH%20ORDER%20BY%20cf%5B10019%5D%20ASC)
