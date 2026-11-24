@@ -1,0 +1,9 @@
+id,action,sender,receiver,message,delay_ms,priority,simulate_error
+1,PRODUCE,Producer_1,Buffer,"Msg 01: Normal data",50,0,NONE
+2,PRODUCE,Producer_1,Buffer,"Msg 02: Delayed packet",150,0,DELAY
+3,PRODUCE,Producer_2,Buffer,"Msg 03: Fill slot 3",50,0,NONE
+4,PRODUCE,Producer_2,Buffer,"Msg 04: Trigger Buffer Full",50,0,NONE
+5,CONSUME,Buffer,Consumer_1,"",50,0,NONE
+6,PRODUCE,Producer_1,Buffer,"Msg 05: Corrupted payload",50,0,CHECKSUM
+7,PRODUCE,Producer_2,Buffer,"Msg 06: Payload exceeds maximum limit of 100 characters to test core guard protection mechanism right at entry!",50,0,NONE
+8,CONSUME,Buffer,Consumer_2,"",50,0,NONE
